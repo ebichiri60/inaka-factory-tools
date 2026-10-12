@@ -54,6 +54,14 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .row>label.filebtn{color:var(--accent-fg);font-size:14px}
 .note{font-size:12px;color:var(--muted);margin:0}
 .err{color:var(--err);font-size:13px;margin:0}
+.seq{display:flex;gap:8px;overflow-x:auto;padding:4px 2px 8px;min-height:40px}
+.seqitem{flex:0 0 auto;display:grid;gap:4px;justify-items:center;background:var(--bg);border:3px solid var(--fg);padding:4px;border-radius:4px}
+.seqitem.now{border-color:var(--sel);box-shadow:0 0 0 2px var(--sel)}
+.seqitem canvas{image-rendering:pixelated;display:block}
+.seqitem span{font-family:var(--display);font-size:12px;font-variant-numeric:tabular-nums}
+.seqitem .mini{display:flex;gap:2px}
+.seqitem .mini button{min-height:28px;padding:0 6px;font-size:13px;border-width:2px}
+input[type=text]{font:inherit;padding:4px 8px;border:2px solid var(--line);border-radius:4px;background:var(--bg);color:var(--fg);width:100%;box-sizing:border-box}
 </style>
 
 <div class="wrap">
@@ -109,16 +117,39 @@ input[type=range]{width:100%;accent-color:var(--accent)}
         <div class="seg">
           <button type="button" id="flip" aria-pressed="false">左右反転</button>
           <button type="button" id="ping" aria-pressed="false">行って戻る</button>
-          <button type="button" id="walk" aria-pressed="false">歩かせる</button>
+        </div>
+      </div>
+      <div class="row">
+        <span class="label">歩かせる</span>
+        <div class="seg" id="walkSeg">
+          <button type="button" data-w="off" aria-pressed="true">その場</button>
+          <button type="button" data-w="side" aria-pressed="false">横へ</button>
+          <button type="button" data-w="up" aria-pressed="false">奥へ（上）</button>
+          <button type="button" data-w="down" aria-pressed="false">手前へ（下）</button>
         </div>
       </div>
     </section>
   </div>
 
   <section class="strip" aria-label="コマ">
-    <h2>コマ</h2>
-    <p>押すと、そのコマを使う／使わないが切りかわります。5コマのうち2コマだけで動かすとどう見えるか、すぐ試せます。</p>
+    <h2>絵（元のコマ）</h2>
+    <p>押すと、そのコマを下の「再生の順番」の最後に足します。同じコマを何回足してもかまいません。</p>
     <div class="frames" id="frames"></div>
+  </section>
+
+  <section class="strip" aria-label="再生の順番">
+    <h2>再生の順番</h2>
+    <p>この順番で動きます。◀ ▶ で入れかえ、✕ で外します。下の欄に「1,3,2,3」のように番号で書いても並べられます。</p>
+    <div class="seq" id="seq"></div>
+    <div class="inline">
+      <label for="seqText" class="note">番号で並べる</label>
+      <input id="seqText" type="text" inputmode="numeric" placeholder="例：1,3,2,3">
+    </div>
+    <div class="btns">
+      <button id="seqApply" type="button">番号のとおりに並べる</button>
+      <button id="seqReset" type="button">元の並びに戻す</button>
+      <button id="seqClear" type="button">空にする</button>
+    </div>
   </section>
 </div>
 
@@ -127,7 +158,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
   var SAMPLE="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAFAAAAAgCAYAAACFM/9sAAACdElEQVR42u2YMWvcMBTH/xJeQyZ/Ac+GDulwcJAlhVszHhmvtOCOXfotOiZwRzOGjlkLzXKl0KFLoXO+QKeQD/C6nIIkS/KTbCdgWVMi+ffeX3/JTyeLk6rC3NKbnC2YDXzRVnj6ydMvmHGz4V0G0rd37530arclhoiseMmFAeAwRinJp8pLLswQkSUvY+CAiGz55FOY8TpkwctY91e7bdLWnypfxLi+2m3x+89nvH71UT/WKWdexsIA0JS1+pty5+ebyEtc5d5+3/RKOiU+2sCHo1s8HN0mJ58aLwEIx8nkbceP5zh+PDcKac680L4Hxv4mEswL+KT5whGQlot16+mfv752fdHg8IIxoTH5wfVL1yqoZFpSuIK67pPqOTvGoZ/G5vUJP4d+aSdfLtbcZEHxKsZysTYmMiJvGBWYAw2ZX9rmMcSRL7lK5ovTtYt68s5+zy6kofSrQ4RcWz3gfLAAd9SgMfhg7dJfS+0qJobIL06qSn1lJeueBwC4uz81/j+r9q57pABAd/en+nirWeNe3q5DXL7r9VZXMc3A3vqVga0EtnEeE71mn1V7b7wuXh93xXDxIb2hnL78IS/0WIXurL37OIk44mP5kFGp+V3PDKG/4K5gSuMuSEho3xhjazcOEa6JVh3Imp+vcgNd5ejm+sPTyMXm0lgdx+nVJYg8px5nQnY+KG2WLmPyinHkIwbfev5ic8nSLwFQU9b48WnPSZKyUjqXxB40eeM2ZY0vb665i5Wqw8k91cCmrAEAV//+tnaTGvOMe03WuRjWxQX0demPnQM1ZW3kDHGhGigCO45lILP2pOxwweBCNa7PG2aw/wGuVXLu3mdcOQAAAABJRU5ErkJggg==";
   var cv=document.getElementById('cv'), ctx=cv.getContext('2d');
   var view=document.getElementById('view');
-  var st={frames:[],on:[],idx:0,playing:true,fps:5,scale:8,flip:false,ping:false,walk:false,dir:1,walkX:0,last:0,acc:0};
+  var st={frames:[],seq:[],pos:0,playing:true,fps:5,scale:8,flip:false,ping:false,walk:false,dir:1,walkX:0,last:0,acc:0};
   var sheetImg=null;
   function el(id){return document.getElementById(id);}
 
@@ -136,7 +167,8 @@ input[type=range]{width:100%;accent-color:var(--accent)}
   scaleSeg.addEventListener('click',function(e){var b=e.target.closest('button');if(!b)return;st.scale=+b.dataset.s;Array.prototype.forEach.call(scaleSeg.children,function(x){x.setAttribute('aria-pressed',String(x===b));});draw();});
   el('bgSeg').addEventListener('click',function(e){var b=e.target.closest('button');if(!b)return;view.className='view bg-'+b.dataset.bg;Array.prototype.forEach.call(el('bgSeg').children,function(x){x.setAttribute('aria-pressed',String(x===b));});});
   function toggle(id){el(id).addEventListener('click',function(){st[id]=!st[id];el(id).setAttribute('aria-pressed',String(st[id]));st.walkX=0;st.dir=1;draw();});}
-  toggle('flip');toggle('ping');toggle('walk');
+  toggle('flip');toggle('ping');
+  el('walkSeg').addEventListener('click',function(e){var b=e.target.closest('button');if(!b)return;st.walk=b.dataset.w==='off'?false:b.dataset.w;st.walkX=0;Array.prototype.forEach.call(el('walkSeg').children,function(x){x.setAttribute('aria-pressed',String(x===b));});draw();});
 
   function speedText(){el('speedLabel').textContent='1コマ '+(1/st.fps).toFixed(2)+' 秒（1秒に'+st.fps+'コマ）';}
   el('speed').addEventListener('input',function(e){st.fps=+e.target.value;speedText();});
@@ -164,7 +196,7 @@ input[type=range]{width:100%;accent-color:var(--accent)}
     el('fw').value=fw;el('fh').value=fh;
   }
   function loadImg(src){return new Promise(function(res,rej){var i=new Image();i.onload=function(){res(i);};i.onerror=rej;i.src=src;});}
-  function setFrames(list){st.frames=list;st.on=list.map(function(){return true;});st.idx=0;st.dir=1;st.walkX=0;buildStrip();draw();}
+  function setFrames(list){st.frames=list;st.seq=list.map(function(_,i){return i;});st.pos=0;st.dir=1;st.walkX=0;buildStrip();buildSeq();draw();}
 
   el('file').addEventListener('change',function(e){
     var files=Array.prototype.slice.call(e.target.files).sort(function(a,b){return a.name.localeCompare(b.name,'ja',{numeric:true});});
@@ -184,50 +216,72 @@ input[type=range]{width:100%;accent-color:var(--accent)}
   });
   ['fw','fh'].forEach(function(id){el(id).addEventListener('change',function(){if(sheetImg)setFrames(cutSheet(sheetImg));});});
 
+  function thumb(f){
+    var s=Math.max(1,Math.floor(64/Math.max(f.width,f.height)));
+    var c=document.createElement('canvas');c.width=f.width*s;c.height=f.height*s;
+    var g=c.getContext('2d');g.imageSmoothingEnabled=false;g.drawImage(f,0,0,c.width,c.height);return c;
+  }
   function buildStrip(){
     var box=el('frames');box.textContent='';
     st.frames.forEach(function(f,i){
-      var b=document.createElement('button');b.type='button';b.className='frame';b.setAttribute('aria-pressed','true');
-      var s=Math.max(1,Math.floor(64/Math.max(f.width,f.height)));
-      var c=document.createElement('canvas');c.width=f.width*s;c.height=f.height*s;
-      var g=c.getContext('2d');g.imageSmoothingEnabled=false;g.drawImage(f,0,0,c.width,c.height);
-      var t=document.createElement('span');t.textContent=(i+1)+'枚目';
-      b.appendChild(c);b.appendChild(t);
-      b.addEventListener('click',function(){
-        var n=st.on.filter(Boolean).length;
-        if(st.on[i]&&n<=1)return;
-        st.on[i]=!st.on[i];b.setAttribute('aria-pressed',String(st.on[i]));
-        if(!st.on[i]&&st.idx===i)step(1);
-        draw();
-      });
+      var b=document.createElement('button');b.type='button';b.className='frame';b.setAttribute('aria-label',(i+1)+'枚目を順番の最後に足す');
+      var t=document.createElement('span');t.textContent=(i+1)+'枚目 ＋';
+      b.appendChild(thumb(f));b.appendChild(t);
+      b.addEventListener('click',function(){st.seq.push(i);buildSeq();draw();});
       box.appendChild(b);
     });
   }
-  function active(){var a=[];for(var i=0;i<st.frames.length;i++)if(st.on[i])a.push(i);return a;}
+  function buildSeq(){
+    var box=el('seq');box.textContent='';
+    if(st.pos>=st.seq.length)st.pos=0;
+    st.seq.forEach(function(fi,p){
+      var d=document.createElement('div');d.className='seqitem';
+      d.appendChild(thumb(st.frames[fi]));
+      var t=document.createElement('span');t.textContent=(p+1)+'番：'+(fi+1)+'枚目';d.appendChild(t);
+      var m=document.createElement('div');m.className='mini';
+      [['◀',function(){move(p,-1);}],['▶',function(){move(p,1);}],['✕',function(){st.seq.splice(p,1);if(st.pos>=st.seq.length)st.pos=0;buildSeq();draw();}]].forEach(function(x){
+        var bt=document.createElement('button');bt.type='button';bt.textContent=x[0];bt.addEventListener('click',x[1]);m.appendChild(bt);
+      });
+      d.appendChild(m);box.appendChild(d);
+    });
+    if(!st.seq.length){var n=document.createElement('p');n.className='note';n.textContent='まだ何もありません。上の絵を押して足してください。';box.appendChild(n);}
+    el('seqText').value=st.seq.map(function(i){return i+1;}).join(',');
+  }
+  function move(p,d){var q=p+d;if(q<0||q>=st.seq.length)return;var x=st.seq[p];st.seq[p]=st.seq[q];st.seq[q]=x;buildSeq();draw();}
+  el('seqApply').addEventListener('click',function(){
+    var nums=el('seqText').value.split(/[^0-9]+/).filter(Boolean).map(Number);
+    var bad=nums.filter(function(n){return n<1||n>st.frames.length;});
+    if(bad.length){showErr('番号は1から'+st.frames.length+'までで書いてください（'+bad.join(',')+' は使えません）。');return;}
+    showErr('');st.seq=nums.map(function(n){return n-1;});st.pos=0;st.dir=1;buildSeq();draw();
+  });
+  el('seqText').addEventListener('keydown',function(e){if(e.key==='Enter')el('seqApply').click();});
+  el('seqReset').addEventListener('click',function(){showErr('');st.seq=st.frames.map(function(_,i){return i;});st.pos=0;buildSeq();draw();});
+  el('seqClear').addEventListener('click',function(){showErr('');st.seq=[];st.pos=0;buildSeq();draw();});
   function step(d){
-    var a=active();if(!a.length)return;
-    var p=a.indexOf(st.idx);
-    if(p<0){st.idx=a[0];return;}
-    if(st.ping&&a.length>1){
+    var n=st.seq.length;if(!n)return;
+    if(st.ping&&n>1){
       var dir=st.dir*(d>0?1:-1);
-      if(p+dir>=a.length||p+dir<0){st.dir*=-1;dir=-dir;}
-      p+=dir;
-    }else p=(p+d+a.length)%a.length;
-    st.idx=a[p];
+      if(st.pos+dir>=n||st.pos+dir<0){st.dir*=-1;dir=-dir;}
+      st.pos+=dir;
+    }else st.pos=(st.pos+d+n)%n;
   }
   function draw(){
-    var f=st.frames[st.idx];if(!f)return;
-    var s=st.scale, extra=st.walk?f.width*6:0;
-    cv.width=(f.width+extra)*s;cv.height=f.height*s;
+    var fi=st.seq[st.pos];var f=st.frames[fi];
+    if(!f){cv.width=16;cv.height=16;ctx.clearRect(0,0,16,16);el('info').textContent='再生の順番が空です';return;}
+    var s=st.scale, w=st.walk;
+    var exW=(w==='side')?f.width*6:0, exH=(w==='up'||w==='down')?f.height*2:0;
+    cv.width=(f.width+exW)*s;cv.height=(f.height+exH)*s;
     ctx.imageSmoothingEnabled=false;ctx.clearRect(0,0,cv.width,cv.height);
-    var x=st.walk?Math.floor(st.walkX)%(extra+1):0;
+    var x=0,y=0;
+    if(w==='side')x=Math.floor(st.walkX)%(exW+1);
+    if(w==='down')y=Math.floor(st.walkX)%(exH+1);
+    if(w==='up')y=exH-Math.floor(st.walkX)%(exH+1);
     ctx.save();
     if(st.flip){ctx.translate(cv.width,0);ctx.scale(-1,1);}
-    ctx.drawImage(f,0,0,f.width,f.height,x*s,0,f.width*s,f.height*s);
+    ctx.drawImage(f,0,0,f.width,f.height,x*s,y*s,f.width*s,f.height*s);
     ctx.restore();
-    var a=active();
-    el('info').textContent='コマ '+(a.indexOf(st.idx)+1)+' / '+a.length+'（'+(st.idx+1)+'枚目）';
-    Array.prototype.forEach.call(el('frames').children,function(b,i){b.classList.toggle('now',i===st.idx);});
+    el('info').textContent='順番 '+(st.pos+1)+' / '+st.seq.length+'（'+(fi+1)+'枚目）';
+    Array.prototype.forEach.call(el('seq').children,function(b,i){if(b.classList)b.classList.toggle('now',i===st.pos);});
   }
   function loop(t){
     if(!st.last)st.last=t;

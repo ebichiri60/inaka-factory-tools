@@ -1,0 +1,251 @@
+<title>ドット絵アニメ確認</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DotGothic16&family=M+PLUS+Rounded+1c:wght@400;700&display=swap">
+<style>
+/* レイアウト：上に大きな再生窓、横に設定、下にコマの帯。スマホでは縦に1列 */
+:root{
+  --bg:#eeeeee; --panel:#ffffff; --fg:#332222; --muted:#6a7a8c; --line:#cbc6be;
+  --accent:#32488a; --accent-fg:#ffffff; --sel:#ffe420; --off:#cbc6be; --err:#9c374e;
+  --display:"DotGothic16","M PLUS Rounded 1c",system-ui,sans-serif;
+  --body:"M PLUS Rounded 1c","Hiragino Maru Gothic ProN",system-ui,sans-serif;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#1c2a4a; --panel:#24345a; --fg:#eeeeee; --muted:#a9b6c2; --line:#32488a;
+  --accent:#ffe420; --accent-fg:#332222; --sel:#ffe420; --off:#534750; --err:#ec8788; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#1c2a4a; --panel:#24345a; --fg:#eeeeee; --muted:#a9b6c2; --line:#32488a;
+  --accent:#ffe420; --accent-fg:#332222; --sel:#ffe420; --off:#534750; --err:#ec8788; color-scheme:dark}
+body{background:var(--bg);color:var(--fg);font-family:var(--body);font-size:15px;line-height:1.6}
+.wrap{max-width:960px;margin:0 auto;padding-inline:16px;padding-block:20px 40px;display:grid;gap:16px}
+h1{font-family:var(--display);font-weight:400;font-size:26px;margin:0;letter-spacing:.04em;text-wrap:balance}
+.lead{margin:0;color:var(--muted);font-size:14px;max-width:62ch}
+.main{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:16px;align-items:start}
+@media (max-width:720px){.main{grid-template-columns:minmax(0,1fr)}}
+.stage{background:var(--panel);border:2px solid var(--line);border-radius:6px;padding:12px;display:grid;gap:10px;min-width:0}
+.view{display:grid;place-items:center;min-height:240px;border-radius:4px;overflow:auto;padding:12px}
+.view canvas{image-rendering:pixelated;image-rendering:crisp-edges;display:block;max-width:none}
+.bg-grass{background:#69ad46}.bg-night{background:#1c2a4a}.bg-light{background:#eeeeee}
+.bg-check{background-color:#cbc6be;background-image:linear-gradient(45deg,#eeeeee 25%,transparent 25%,transparent 75%,#eeeeee 75%),linear-gradient(45deg,#eeeeee 25%,transparent 25%,transparent 75%,#eeeeee 75%);background-size:16px 16px;background-position:0 0,8px 8px}
+.counter{font-family:var(--display);font-size:14px;color:var(--muted);font-variant-numeric:tabular-nums;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.btns{display:flex;gap:8px;flex-wrap:wrap}
+button,.filebtn{font:inherit;font-size:14px;border:2px solid var(--fg);background:var(--panel);color:var(--fg);border-radius:4px;padding:6px 12px;cursor:pointer;min-height:38px}
+button.primary,.filebtn{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
+button:focus-visible,input:focus-visible,.filebtn:focus-within{outline:3px solid var(--sel);outline-offset:2px}
+.panel{background:var(--panel);border:2px solid var(--line);border-radius:6px;padding:14px;display:grid;gap:14px;min-width:0}
+.panel h2,.strip h2{font-family:var(--display);font-weight:400;font-size:17px;margin:0}
+.row{display:grid;gap:6px}
+.row>label,.row>.label{font-size:13px;color:var(--muted)}
+.inline{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+input[type=number]{width:5.5em;font:inherit;padding:4px 6px;border:2px solid var(--line);border-radius:4px;background:var(--bg);color:var(--fg)}
+input[type=range]{width:100%;accent-color:var(--accent)}
+.filebtn{position:relative;display:inline-flex;align-items:center;justify-self:start}
+.filebtn input{position:absolute;opacity:0;width:1px;height:1px}
+.seg{display:flex;flex-wrap:wrap;gap:6px}
+.seg button{padding:4px 10px;min-height:34px;border-color:var(--line)}
+.seg button[aria-pressed="true"]{border-color:var(--fg);background:var(--sel);color:#332222}
+.strip{background:var(--panel);border:2px solid var(--line);border-radius:6px;padding:12px;display:grid;gap:8px;min-width:0}
+.strip p{margin:0;font-size:13px;color:var(--muted)}
+.frames{display:flex;gap:8px;overflow-x:auto;padding:4px 2px 8px}
+.frame{flex:0 0 auto;display:grid;gap:4px;justify-items:center;background:var(--bg);border:3px solid var(--fg);padding:4px;border-radius:4px;cursor:pointer;min-height:0}
+.frame canvas{image-rendering:pixelated;display:block}
+.frame span{font-family:var(--display);font-size:12px;font-variant-numeric:tabular-nums}
+.frame[aria-pressed="false"]{border-color:var(--off);opacity:.45}
+.frame.now{border-color:var(--sel);box-shadow:0 0 0 2px var(--sel)}
+.row>label.filebtn{color:var(--accent-fg);font-size:14px}
+.note{font-size:12px;color:var(--muted);margin:0}
+.err{color:var(--err);font-size:13px;margin:0}
+</style>
+
+<div class="wrap">
+  <header style="display:grid;gap:4px">
+    <h1>ドット絵アニメ確認</h1>
+    <p class="lead">横に並べた絵（スプライトシート）か、1コマずつの絵を何枚か選ぶと、その場で動かして見られます。絵はこの画面の中だけで使い、どこにも送りません。</p>
+  </header>
+
+  <div class="main">
+    <section class="stage" aria-label="再生">
+      <div id="view" class="view bg-grass"><canvas id="cv" width="16" height="32"></canvas></div>
+      <div class="counter"><span id="info">コマ 1 / 5</span><span id="name">見本：妹の右向き歩き（5コマ）</span></div>
+      <div class="btns">
+        <button id="play" class="primary" type="button">一時停止</button>
+        <button id="prev" type="button">◀ 1コマ戻る</button>
+        <button id="next" type="button">1コマ進む ▶</button>
+      </div>
+    </section>
+
+    <section class="panel" aria-label="設定">
+      <h2>絵を選ぶ</h2>
+      <div class="row">
+        <label class="filebtn" for="file">画像を選ぶ（PNG）<input id="file" type="file" accept="image/png,image/*" multiple></label>
+        <p class="note">1枚なら、横に並んだシートとして切り分けます。何枚か選ぶと、ファイル名の順に1コマずつにします。</p>
+        <p id="err" class="err" hidden></p>
+      </div>
+      <div class="row" id="sizeRow">
+        <span class="label">1コマの大きさ（ピクセル）</span>
+        <div class="inline">
+          <label for="fw">横</label><input id="fw" type="number" min="1" max="512" value="16">
+          <label for="fh">縦</label><input id="fh" type="number" min="1" max="512" value="32">
+        </div>
+      </div>
+      <div class="row">
+        <label for="speed">速さ：<span id="speedLabel"></span></label>
+        <input id="speed" type="range" min="1" max="24" value="5">
+      </div>
+      <div class="row">
+        <span class="label">拡大</span>
+        <div class="seg" id="scaleSeg"></div>
+      </div>
+      <div class="row">
+        <span class="label">背景</span>
+        <div class="seg" id="bgSeg">
+          <button type="button" data-bg="grass" aria-pressed="true">草</button>
+          <button type="button" data-bg="night" aria-pressed="false">夜の紺</button>
+          <button type="button" data-bg="light" aria-pressed="false">白</button>
+          <button type="button" data-bg="check" aria-pressed="false">市松</button>
+        </div>
+      </div>
+      <div class="row">
+        <span class="label">見え方</span>
+        <div class="seg">
+          <button type="button" id="flip" aria-pressed="false">左右反転</button>
+          <button type="button" id="ping" aria-pressed="false">行って戻る</button>
+          <button type="button" id="walk" aria-pressed="false">歩かせる</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <section class="strip" aria-label="コマ">
+    <h2>コマ</h2>
+    <p>押すと、そのコマを使う／使わないが切りかわります。5コマのうち2コマだけで動かすとどう見えるか、すぐ試せます。</p>
+    <div class="frames" id="frames"></div>
+  </section>
+</div>
+
+<script>
+(function(){
+  var SAMPLE="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAFAAAAAgCAYAAACFM/9sAAACdElEQVR42u2YMWvcMBTH/xJeQyZ/Ac+GDulwcJAlhVszHhmvtOCOXfotOiZwRzOGjlkLzXKl0KFLoXO+QKeQD/C6nIIkS/KTbCdgWVMi+ffeX3/JTyeLk6rC3NKbnC2YDXzRVnj6ydMvmHGz4V0G0rd37530arclhoiseMmFAeAwRinJp8pLLswQkSUvY+CAiGz55FOY8TpkwctY91e7bdLWnypfxLi+2m3x+89nvH71UT/WKWdexsIA0JS1+pty5+ebyEtc5d5+3/RKOiU+2sCHo1s8HN0mJ58aLwEIx8nkbceP5zh+PDcKac680L4Hxv4mEswL+KT5whGQlot16+mfv752fdHg8IIxoTH5wfVL1yqoZFpSuIK67pPqOTvGoZ/G5vUJP4d+aSdfLtbcZEHxKsZysTYmMiJvGBWYAw2ZX9rmMcSRL7lK5ovTtYt68s5+zy6kofSrQ4RcWz3gfLAAd9SgMfhg7dJfS+0qJobIL06qSn1lJeueBwC4uz81/j+r9q57pABAd/en+nirWeNe3q5DXL7r9VZXMc3A3vqVga0EtnEeE71mn1V7b7wuXh93xXDxIb2hnL78IS/0WIXurL37OIk44mP5kFGp+V3PDKG/4K5gSuMuSEho3xhjazcOEa6JVh3Imp+vcgNd5ejm+sPTyMXm0lgdx+nVJYg8px5nQnY+KG2WLmPyinHkIwbfev5ic8nSLwFQU9b48WnPSZKyUjqXxB40eeM2ZY0vb665i5Wqw8k91cCmrAEAV//+tnaTGvOMe03WuRjWxQX0demPnQM1ZW3kDHGhGigCO45lILP2pOxwweBCNa7PG2aw/wGuVXLu3mdcOQAAAABJRU5ErkJggg==";
+  var cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+  var view=document.getElementById('view');
+  var st={frames:[],on:[],idx:0,playing:true,fps:5,scale:8,flip:false,ping:false,walk:false,dir:1,walkX:0,last:0,acc:0};
+  var sheetImg=null;
+  function el(id){return document.getElementById(id);}
+
+  var scaleSeg=el('scaleSeg');
+  [2,4,6,8,12].forEach(function(s){var b=document.createElement('button');b.type='button';b.textContent=s+'倍';b.dataset.s=s;b.setAttribute('aria-pressed',String(s===st.scale));scaleSeg.appendChild(b);});
+  scaleSeg.addEventListener('click',function(e){var b=e.target.closest('button');if(!b)return;st.scale=+b.dataset.s;Array.prototype.forEach.call(scaleSeg.children,function(x){x.setAttribute('aria-pressed',String(x===b));});draw();});
+  el('bgSeg').addEventListener('click',function(e){var b=e.target.closest('button');if(!b)return;view.className='view bg-'+b.dataset.bg;Array.prototype.forEach.call(el('bgSeg').children,function(x){x.setAttribute('aria-pressed',String(x===b));});});
+  function toggle(id){el(id).addEventListener('click',function(){st[id]=!st[id];el(id).setAttribute('aria-pressed',String(st[id]));st.walkX=0;st.dir=1;draw();});}
+  toggle('flip');toggle('ping');toggle('walk');
+
+  function speedText(){el('speedLabel').textContent='1コマ '+(1/st.fps).toFixed(2)+' 秒（1秒に'+st.fps+'コマ）';}
+  el('speed').addEventListener('input',function(e){st.fps=+e.target.value;speedText();});
+
+  function showErr(t){var e=el('err');e.textContent=t||'';e.hidden=!t;}
+  function isBlank(g,w,h){var d=g.getImageData(0,0,w,h).data;for(var i=3;i<d.length;i+=4)if(d[i])return false;return true;}
+  function cutSheet(img){
+    var fw=Math.max(1,+el('fw').value|0), fh=Math.max(1,+el('fh').value|0);
+    var cols=Math.floor(img.width/fw), rows=Math.floor(img.height/fh);
+    if(cols<1||rows<1){showErr('1コマの大きさが絵より大きくなっています。横と縦の数字を小さくしてください。');return [];}
+    if(img.width%fw||img.height%fh)showErr('絵の大きさ（'+img.width+'×'+img.height+'）が1コマの大きさで割り切れません。はみ出した端は使わずに切り分けました。');
+    else showErr('');
+    var out=[];
+    for(var r=0;r<rows;r++)for(var c=0;c<cols;c++){
+      var f=document.createElement('canvas');f.width=fw;f.height=fh;
+      var g=f.getContext('2d');g.imageSmoothingEnabled=false;g.drawImage(img,c*fw,r*fh,fw,fh,0,0,fw,fh);
+      if(!isBlank(g,fw,fh))out.push(f);
+    }
+    return out;
+  }
+  function guessSize(img){
+    var fh=img.height, fw=Math.min(img.width,img.height);
+    if(img.height===32&&img.width%16===0)fw=16;
+    if(img.width%fw)fw=16;
+    el('fw').value=fw;el('fh').value=fh;
+  }
+  function loadImg(src){return new Promise(function(res,rej){var i=new Image();i.onload=function(){res(i);};i.onerror=rej;i.src=src;});}
+  function setFrames(list){st.frames=list;st.on=list.map(function(){return true;});st.idx=0;st.dir=1;st.walkX=0;buildStrip();draw();}
+
+  el('file').addEventListener('change',function(e){
+    var files=Array.prototype.slice.call(e.target.files).sort(function(a,b){return a.name.localeCompare(b.name,'ja',{numeric:true});});
+    if(!files.length)return;
+    Promise.all(files.map(function(f){return loadImg(URL.createObjectURL(f));})).then(function(imgs){
+      if(imgs.length===1){
+        sheetImg=imgs[0];guessSize(sheetImg);el('sizeRow').hidden=false;setFrames(cutSheet(sheetImg));
+        el('name').textContent=files[0].name+'（'+sheetImg.width+'×'+sheetImg.height+'）';
+      }else{
+        sheetImg=null;el('sizeRow').hidden=true;showErr('');
+        var w=imgs[0].width,h=imgs[0].height;
+        if(imgs.some(function(i){return i.width!==w||i.height!==h;}))showErr('大きさの違う絵がまざっています。最初の絵（'+w+'×'+h+'）の大きさに合わせて表示します。');
+        setFrames(imgs.map(function(i){var f=document.createElement('canvas');f.width=w;f.height=h;var g=f.getContext('2d');g.imageSmoothingEnabled=false;g.drawImage(i,0,0);return f;}));
+        el('name').textContent=files.length+'枚の絵（'+w+'×'+h+'）';
+      }
+    }).catch(function(){showErr('画像を読み込めませんでした。PNGの画像を選んでください。');});
+  });
+  ['fw','fh'].forEach(function(id){el(id).addEventListener('change',function(){if(sheetImg)setFrames(cutSheet(sheetImg));});});
+
+  function buildStrip(){
+    var box=el('frames');box.textContent='';
+    st.frames.forEach(function(f,i){
+      var b=document.createElement('button');b.type='button';b.className='frame';b.setAttribute('aria-pressed','true');
+      var s=Math.max(1,Math.floor(64/Math.max(f.width,f.height)));
+      var c=document.createElement('canvas');c.width=f.width*s;c.height=f.height*s;
+      var g=c.getContext('2d');g.imageSmoothingEnabled=false;g.drawImage(f,0,0,c.width,c.height);
+      var t=document.createElement('span');t.textContent=(i+1)+'枚目';
+      b.appendChild(c);b.appendChild(t);
+      b.addEventListener('click',function(){
+        var n=st.on.filter(Boolean).length;
+        if(st.on[i]&&n<=1)return;
+        st.on[i]=!st.on[i];b.setAttribute('aria-pressed',String(st.on[i]));
+        if(!st.on[i]&&st.idx===i)step(1);
+        draw();
+      });
+      box.appendChild(b);
+    });
+  }
+  function active(){var a=[];for(var i=0;i<st.frames.length;i++)if(st.on[i])a.push(i);return a;}
+  function step(d){
+    var a=active();if(!a.length)return;
+    var p=a.indexOf(st.idx);
+    if(p<0){st.idx=a[0];return;}
+    if(st.ping&&a.length>1){
+      var dir=st.dir*(d>0?1:-1);
+      if(p+dir>=a.length||p+dir<0){st.dir*=-1;dir=-dir;}
+      p+=dir;
+    }else p=(p+d+a.length)%a.length;
+    st.idx=a[p];
+  }
+  function draw(){
+    var f=st.frames[st.idx];if(!f)return;
+    var s=st.scale, extra=st.walk?f.width*6:0;
+    cv.width=(f.width+extra)*s;cv.height=f.height*s;
+    ctx.imageSmoothingEnabled=false;ctx.clearRect(0,0,cv.width,cv.height);
+    var x=st.walk?Math.floor(st.walkX)%(extra+1):0;
+    ctx.save();
+    if(st.flip){ctx.translate(cv.width,0);ctx.scale(-1,1);}
+    ctx.drawImage(f,0,0,f.width,f.height,x*s,0,f.width*s,f.height*s);
+    ctx.restore();
+    var a=active();
+    el('info').textContent='コマ '+(a.indexOf(st.idx)+1)+' / '+a.length+'（'+(st.idx+1)+'枚目）';
+    Array.prototype.forEach.call(el('frames').children,function(b,i){b.classList.toggle('now',i===st.idx);});
+  }
+  function loop(t){
+    if(!st.last)st.last=t;
+    var dt=Math.min(0.25,(t-st.last)/1000);st.last=t;
+    if(st.playing){
+      st.acc+=dt;var per=1/st.fps,changed=false;
+      if(st.walk){st.walkX+=dt*32;changed=true;}
+      while(st.acc>=per){st.acc-=per;step(1);changed=true;}
+      if(changed)draw();
+    }
+    requestAnimationFrame(loop);
+  }
+  function pause(){st.playing=false;el('play').textContent='再生';}
+  el('play').addEventListener('click',function(){st.playing=!st.playing;el('play').textContent=st.playing?'一時停止':'再生';});
+  el('prev').addEventListener('click',function(){pause();step(-1);draw();});
+  el('next').addEventListener('click',function(){pause();step(1);draw();});
+
+  speedText();
+  loadImg(SAMPLE).then(function(img){sheetImg=img;el('fw').value=16;el('fh').value=32;setFrames(cutSheet(img));requestAnimationFrame(loop);});
+})();
+</script>

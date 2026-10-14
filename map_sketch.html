@@ -108,6 +108,7 @@ textarea { resize: vertical; min-height: 64px; }
       <button class="btn" id="tool-restore" data-tool="restore" aria-pressed="false">元に戻す筆</button>
       <button class="btn" id="tool-marker" data-tool="marker" aria-pressed="false">印をつける</button>
       <button class="btn" id="tool-object" data-tool="object" aria-pressed="false">物を置く</button>
+      <button class="btn" id="tool-player" data-tool="player" aria-pressed="false">主人公を動かす</button>
       <button class="btn" id="tool-pan" data-tool="pan" aria-pressed="false">動かす</button>
     </div>
     <div class="group" aria-label="高さ">
@@ -127,6 +128,13 @@ textarea { resize: vertical; min-height: 64px; }
       <select id="brush" aria-label="筆の太さ">
         <option value="1">1マス</option><option value="2">2マス</option><option value="3" selected>3マス</option><option value="5">5マス</option>
       </select>
+    </div>
+    <div class="group" aria-label="見える範囲">
+      <span class="group-label">見える範囲</span>
+      <select id="camZoom" aria-label="カメラの距離">
+        <option value="1" selected>ふつう 30×17マス</option><option value="2">引き 60×34マス</option><option value="4">いちばん引き 120×68マス</option>
+      </select>
+      <label class="row" style="font-size:12px;gap:4px"><input type="checkbox" id="showView" checked> 枠を出す</label>
     </div>
     <div class="group">
       <button class="btn" id="undo">一つ戻す</button>
@@ -202,7 +210,7 @@ textarea { resize: vertical; min-height: 64px; }
       <section>
         <h2>色の見方</h2>
         <div class="legend" id="legend"></div>
-        <p class="help" style="margin-top:8px">高さ：「高さの筆」で段を塗ると、段の境目に崖が描かれます。1段の上に2段を塗れば、崖の上の崖になります（手前向きの崖の壁は1段につき1マスで、塗った所のすぐ下に描かれます）。<br>パソコン：左ボタンで塗る、右ボタンかスペースを押しながらで動かす、ホイールで拡大。スマホ：1本指で塗る、2本指で動かす・拡大。</p>
+        <p class="help" style="margin-top:8px">高さ：「高さの筆」で段を塗ると、段の境目に崖が描かれます。1段の上に2段を塗れば、崖の上の崖になります（手前向きの崖の壁は1段につき1マスで、塗った所のすぐ下に描かれます）。<br>主人公：「主人公を動かす」でタップかドラッグ。黄色い点線の枠が、ゲームの画面に映る範囲です（カメラは主人公の足元が真ん中）。<br>パソコン：左ボタンで塗る、右ボタンかスペースを押しながらで動かす、ホイールで拡大。スマホ：1本指で塗る、2本指で動かす・拡大。</p>
       </section>
     </aside>
   </div>
@@ -271,6 +279,9 @@ let markers = [];            // {id,x,y,w,h,label,color} ゲーム座標
 let heightEdits = new Map(); // idx -> 段（0 は平地）
 let objects = [];            // {id,type,x,y,w,h} ゲーム座標
 let selectedObj = null;
+// 主人公の足元（マスの小数）。カメラは足元が画面の真ん中。画面は 480×270 ピクセル＝30×16.875マス。
+let player = { x: BASE.spawn[0] + 0.5, y: BASE.spawn[1] + 1 };
+const VIEW_W = 480 / 16, VIEW_H = 270 / 16;
 let undoStack = [];
 let sketchId = null;
 let dirty = false;
@@ -357,6 +368,7 @@ function draw() {
   }
   // 置いた物
   for (const o of objects) drawObject(ctx, o, sx(o.x - OX), sy(o.y - OY), s, o.id === selectedObj);
+  drawPlayer(ctx, sx, sy, s);
   // 変えた所
   if (document.getElementById("showDiff").checked && s >= 3) {
     ctx.strokeStyle = "rgba(255,255,255,.85)"; ctx.lineWidth = 1;
@@ -430,6 +442,24 @@ function drawHeights(g, x0, y0, x1, y1, sx, sy, s) {
     g.font = `700 ${Math.round(s * .45)}px sans-serif`; g.fillStyle = "rgba(51,34,34,.55)";
     for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { const L = heightAt(x, y); if (L && heightAt(x, y - 1) >= 0) g.fillText(String(L), sx(x) + s * .32, sy(y) + s * .55); }
   }
+}
+function drawPlayer(g, sx, sy, s) {
+  const px = player.x - OX, py = player.y - OY;
+  if (document.getElementById("showView").checked) {
+    const z = parseInt(document.getElementById("camZoom").value, 10), vw = VIEW_W * z, vh = VIEW_H * z;
+    const X = sx(px - vw / 2), Y = sy(py - vh / 2);
+    g.fillStyle = "rgba(255,228,32,.06)"; g.fillRect(X, Y, vw * s, vh * s);
+    g.strokeStyle = "#ffe420"; g.lineWidth = 2; g.setLineDash([8, 5]); g.strokeRect(X, Y, vw * s, vh * s); g.setLineDash([]);
+    if (s * vw > 120) label(`見える範囲 ${Math.round(vw)}×${Math.round(vh)}マス`, X + 4, Y + 16, "#ffe420");
+  }
+  // 主人公（16×32ピクセル＝1×2マス、足元が基準）
+  const X = sx(px - .5), Y = sy(py - 2), w = s, h = 2 * s;
+  g.fillStyle = "rgba(51,34,34,.35)"; g.beginPath(); g.ellipse(sx(px), sy(py) - s * .05, s * .45, s * .18, 0, 0, Math.PI * 2); g.fill();
+  g.fillStyle = "#32488a"; g.fillRect(X + w * .2, Y + h * .55, w * .6, h * .4);
+  g.fillStyle = "#f00060"; g.fillRect(X + w * .15, Y + h * .4, w * .7, h * .22);
+  g.fillStyle = "#fff3b0"; g.fillRect(X + w * .2, Y + h * .12, w * .6, h * .3);
+  g.fillStyle = "#ec9b5f"; g.fillRect(X + w * .15, Y + h * .06, w * .7, h * .12);
+  g.strokeStyle = tool === "player" ? "#ffe420" : "#332222"; g.lineWidth = Math.max(1, s * .1); g.strokeRect(X + w * .12, Y + h * .05, w * .76, h * .9);
 }
 function drawObject(g, o, X, Y, s, selected) {
   const def = OBJ[o.type] || { name: o.type, color: "#f00060" };
@@ -544,6 +574,7 @@ cv.addEventListener("pointerdown", (e) => {
   try { cv.setPointerCapture(e.pointerId); } catch (err) {}
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
   if (pointers.size === 2) {
+    if (gesture && gesture.type === "player") player = gesture.prev;
     // 2本目の指が来たら、1本目で塗り始めた分は取り消して、動かす・拡大にする。
     if (gesture && gesture.timer) clearTimeout(gesture.timer);
     if (stroke) cancelStroke();
@@ -559,6 +590,10 @@ cv.addEventListener("pointerdown", (e) => {
     return;
   }
   if (tool === "rect" || tool === "marker" || tool === "heightRect") { gesture = { type: "rect" }; dragRect = { type: tool, a: t, b: t }; requestDraw(); return; }
+  if (tool === "player") {
+    gesture = { type: "player", prev: { ...player } };
+    player = { x: t.x + OX + .5, y: t.y + OY + 1 }; requestDraw(); updateHud(); return;
+  }
   if (tool === "object") {
     const hit = objectAt(t.x + OX, t.y + OY);
     gesture = { type: "objdown", t, hit: hit ? hit.id : null, moved: false, off: hit ? { x: t.x + OX - hit.x, y: t.y + OY - hit.y } : null, before: objects.map((o) => ({ ...o })) };
@@ -604,6 +639,8 @@ cv.addEventListener("pointermove", (e) => {
   } else if (gesture.type === "pan") {
     view.x = gesture.view.x - (e.clientX - gesture.start.x) / view.scale;
     view.y = gesture.view.y - (e.clientY - gesture.start.y) / view.scale;
+  } else if (gesture.type === "player") {
+    player = { x: Math.max(0, Math.min(W - 1, t.x)) + OX + .5, y: Math.max(0, Math.min(H - 1, t.y)) + OY + 1 };
   } else if (gesture.type === "objdown") {
     if (gesture.hit && (t.x !== gesture.t.x || t.y !== gesture.t.y || gesture.moved)) {
       gesture.moved = true;
@@ -621,6 +658,7 @@ function endPointer(e) {
   pointers.delete(e.pointerId);
   if (!gesture) return;
   if (gesture.type === "pinch") { if (pointers.size === 0) gesture = null; return; }
+  if (gesture.type === "player") { markDirty(); gesture = null; requestDraw(); return; }
   if (gesture.type === "objdown") {
     if (gesture.hit && gesture.moved) { undoStack.push({ type: "objects", prev: gesture.before }); markDirty(); renderObjects(); }
     else if (!gesture.hit) {
@@ -735,6 +773,8 @@ for (const b of document.querySelectorAll("[data-tool]")) b.onclick = () => setT
 document.getElementById("brush").onchange = requestDraw;
 document.getElementById("showDiff").onchange = requestDraw;
 document.getElementById("showTrees").onchange = requestDraw;
+document.getElementById("showView").onchange = requestDraw;
+document.getElementById("camZoom").onchange = requestDraw;
 
 const legend = document.getElementById("legend");
 for (const k of KINDS) if (!k.hidden) legend.insertAdjacentHTML("beforeend", `<span class="sw" style="background:${k.color}"></span><span>${k.name}</span>`);
@@ -820,6 +860,7 @@ function serialize() {
     tiles, trees,
     heights: [...heightEdits].sort((a, b) => a[0] - b[0]).map(([i, v]) => `${i % W + OX},${((i / W) | 0) + OY},${v}`).join(";"),
     heightsFormat: "x,y,段。段は 0 が平地、1 以上が高い所（崖の上）。手前（下）向きの崖の壁は1段につき1マスで、高い所のすぐ下のマスに立つ",
+    player: { x: player.x, y: player.y, view: `${Math.round(VIEW_W * parseInt(document.getElementById("camZoom").value, 10))}x${Math.round(VIEW_H * parseInt(document.getElementById("camZoom").value, 10))}`, note: "x,y は主人公の足元（マス）。view は見える範囲（マス）" },
     objects: objects.map(({ id, type, x, y, w, h }) => ({ id, type, name: (OBJ[type] || {}).name || type, x, y, w, h })),
     markers: markers.map(({ id, x, y, w, h, label, color }) => ({ id, x, y, w, h, label, color })),
   };
@@ -834,6 +875,7 @@ function deserialize(d) {
   for (const part of (d.heights || "").split(";")) { if (!part) continue; const [x, y, v] = part.split(","); const i = (+y - OY) * W + (+x - OX); if (i >= 0 && i < W * H && +v > 0) heightEdits.set(i, +v); }
   objects = Array.isArray(d.objects) ? d.objects.filter((o) => o && o.type).map(({ id, type, x, y, w, h }) => ({ id: id || "o" + Math.random().toString(36).slice(2, 8), type, x: +x, y: +y, w: +w || 1, h: +h || 1 })) : [];
   selectedObj = null; renderObjects();
+  if (d.player && isFinite(d.player.x) && isFinite(d.player.y)) player = { x: +d.player.x, y: +d.player.y };
   document.getElementById("sketchName").value = d.name || "";
   document.getElementById("note").value = d.note || "";
   undoStack = []; renderMarkers(); updateSummary(); requestDraw();

@@ -108,7 +108,7 @@ textarea { resize: vertical; min-height: 64px; }
       <button class="btn" id="tool-restore" data-tool="restore" aria-pressed="false">元に戻す筆</button>
       <button class="btn" id="tool-marker" data-tool="marker" aria-pressed="false">印をつける</button>
       <button class="btn" id="tool-object" data-tool="object" aria-pressed="false">物を置く</button>
-      <button class="btn" id="tool-erase" data-tool="erase" aria-pressed="false">物・印を消す</button>
+      <button class="btn" id="tool-erase" data-tool="erase" aria-pressed="false">物・坂・印を消す</button>
       <button class="btn" id="tool-player" data-tool="player" aria-pressed="false">主人公を動かす</button>
       <button class="btn" id="tool-pan" data-tool="pan" aria-pressed="false">動かす</button>
     </div>
@@ -119,6 +119,7 @@ textarea { resize: vertical; min-height: 64px; }
       </select>
       <button class="btn" id="tool-height" data-tool="height" aria-pressed="false">高さの筆</button>
       <button class="btn" id="tool-heightRect" data-tool="heightRect" aria-pressed="false">四角で高さ</button>
+      <button class="btn" id="tool-slope" data-tool="slope" aria-pressed="false">坂を引く</button>
     </div>
     <div class="group" aria-label="置く物">
       <span class="group-label">置く物</span>
@@ -211,7 +212,7 @@ textarea { resize: vertical; min-height: 64px; }
       <section>
         <h2>色の見方</h2>
         <div class="legend" id="legend"></div>
-        <p class="help" style="margin-top:8px">高さ：「高さの筆」で段を塗ると、段の境目に崖が描かれます。1段の上に2段を塗れば、崖の上の崖になります（手前向きの崖の壁は1段につき1マスで、塗った所のすぐ下に描かれます）。<br>消す：「物・印を消す」を選んで、地図の上の物か印をタップすると消えます。<br>主人公：「主人公を動かす」でタップかドラッグ。黄色い点線の枠が、ゲームの画面に映る範囲です（カメラは主人公の足元が真ん中）。<br>パソコン：左ボタンで塗る、右ボタンかスペースを押しながらで動かす、ホイールで拡大。スマホ：1本指で塗る、2本指で動かす・拡大。</p>
+        <p class="help" style="margin-top:8px">高さ：「高さの筆」で段を塗ると、段の境目に崖が描かれます。1段の上に2段を塗れば、崖の上の崖になります（手前向きの崖の壁は1段につき1マスで、塗った所のすぐ下に描かれます）。<br>坂：「坂を引く」で、坂の下の端のマスから、上の端のマスまで斜めになぞります。45度にそろい、1マス進むごとに1段上がります。幅は「太さ」のマス数です。<br>消す：「物・印を消す」を選んで、地図の上の物か印をタップすると消えます。<br>主人公：「主人公を動かす」でタップかドラッグ。黄色い点線の枠が、ゲームの画面に映る範囲です（カメラは主人公の足元が真ん中）。<br>パソコン：左ボタンで塗る、右ボタンかスペースを押しながらで動かす、ホイールで拡大。スマホ：1本指で塗る、2本指で動かす・拡大。</p>
       </section>
     </aside>
   </div>
@@ -280,6 +281,7 @@ let markers = [];            // {id,x,y,w,h,label,color} ゲーム座標
 let heightEdits = new Map(); // idx -> 段（0 は平地）
 let objects = [];            // {id,type,x,y,w,h} ゲーム座標
 let selectedObj = null;
+let slopes = [];             // {id,dir:"r"|"l",x,y,len,width} x,y は坂の下の端のマス（ゲーム座標）
 // 主人公の足元（マスの小数）。カメラは足元が画面の真ん中。画面は 480×270 ピクセル＝30×16.875マス。
 let player = { x: BASE.spawn[0] + 0.5, y: BASE.spawn[1] + 1 };
 const VIEW_W = 480 / 16, VIEW_H = 270 / 16;
@@ -352,6 +354,8 @@ function draw() {
     ctx.stroke();
   }
   drawHeights(ctx, x0, y0, x1, y1, sx, sy, s);
+  drawSlopes(ctx, sx, sy, s, slopes, false);
+  if (dragRect && dragRect.type === "slope") drawSlopes(ctx, sx, sy, s, [slopeFromDrag(dragRect.a, dragRect.b)], true);
   // 橋
   for (const b of BASE.bridges) {
     const [l, t, r, bt] = b.rect;
@@ -394,6 +398,7 @@ function draw() {
   if (dragRect) {
     const r = normRect(dragRect);
     if (dragRect.type === "marker") drawMarker({ ...r, label: "", color: markerColor }, sx, sy, s, true);
+    else if (dragRect.type === "slope") { /* 坂は上で下書きを描く */ }
     else if (dragRect.type === "heightRect") { ctx.fillStyle = "rgba(255,255,255,.35)"; ctx.fillRect(sx(r.x - OX), sy(r.y - OY), r.w * s, r.h * s); ctx.strokeStyle = "#fff"; ctx.strokeRect(sx(r.x - OX), sy(r.y - OY), r.w * s, r.h * s); }
     else { ctx.fillStyle = KINDS[kind].color + "aa"; ctx.fillRect(sx(r.x - OX), sy(r.y - OY), r.w * s, r.h * s); ctx.strokeStyle = "#fff"; ctx.strokeRect(sx(r.x - OX), sy(r.y - OY), r.w * s, r.h * s); }
   }
@@ -443,6 +448,60 @@ function drawHeights(g, x0, y0, x1, y1, sx, sy, s) {
     g.font = `700 ${Math.round(s * .45)}px sans-serif`; g.fillStyle = "rgba(51,34,34,.55)";
     for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { const L = heightAt(x, y); if (L && heightAt(x, y - 1) >= 0) g.fillText(String(L), sx(x) + s * .32, sy(y) + s * .55); }
   }
+}
+// 坂：下の端のマス(x,y)から45度で len マス上る。幅は縦のマス数。手前のふちの下は壁。
+function slopeShape(sl) {
+  const r = sl.dir === "r", L = sl.len, w = sl.width;
+  const xa = r ? sl.x : sl.x + 1, xb = r ? sl.x + L : sl.x + 1 - L; // 手前のふちの両端（x）
+  const base = sl.y + 1;                                         // 壁の足もと
+  const front = (x) => base - Math.abs(x - xa);                   // 手前のふち
+  return { r, xa, xb, base, front, back: (x) => front(x) - w, top: base - L };
+}
+function drawSlopes(g, sx, sy, s, list, ghost) {
+  for (const sl of list) {
+    const sh = slopeShape(sl);
+    const P = (x, y) => [sx(x - OX), sy(y - OY)];
+    // 壁
+    g.beginPath(); g.moveTo(...P(sh.xa, sh.base)); g.lineTo(...P(sh.xb, sh.top)); g.lineTo(...P(sh.xb, sh.base)); g.closePath();
+    g.fillStyle = ghost ? "rgba(110,90,122,.6)" : "#6e5a7a"; g.fill();
+    g.save(); g.clip();
+    g.strokeStyle = "rgba(51,34,34,.45)"; g.lineWidth = Math.max(1, s * .08); g.beginPath();
+    for (let y = sh.top + 1; y < sh.base; y++) { g.moveTo(...P(Math.min(sh.xa, sh.xb), y)); g.lineTo(...P(Math.max(sh.xa, sh.xb), y)); }
+    g.stroke(); g.restore();
+    // 坂の面
+    g.beginPath(); g.moveTo(...P(sh.xa, sh.base)); g.lineTo(...P(sh.xb, sh.top)); g.lineTo(...P(sh.xb, sh.top - sl.width)); g.lineTo(...P(sh.xa, sh.base - sl.width)); g.closePath();
+    g.fillStyle = ghost ? "rgba(181,214,90,.6)" : "#8cc04e"; g.fill();
+    g.save(); g.clip();
+    // 真ん中の道と、上る向きの筋
+    g.strokeStyle = "#d9c08c"; g.lineWidth = Math.max(2, s * Math.min(1.2, sl.width * .3)); g.beginPath();
+    g.moveTo(...P(sh.xa, sh.base - sl.width / 2)); g.lineTo(...P(sh.xb, sh.top - sl.width / 2)); g.stroke();
+    g.strokeStyle = "rgba(139,99,59,.55)"; g.lineWidth = 1; g.beginPath();
+    for (let k = 0; k <= sl.len; k++) { const x = sh.r ? sh.xa + k : sh.xa - k; g.moveTo(...P(x, sh.front(x))); g.lineTo(...P(x, sh.front(x) - sl.width)); }
+    g.stroke(); g.restore();
+    g.strokeStyle = "#534750"; g.lineWidth = Math.max(1, s * .12); g.beginPath();
+    g.moveTo(...P(sh.xa, sh.base - sl.width)); g.lineTo(...P(sh.xb, sh.top - sl.width)); g.stroke();
+    g.strokeStyle = "#a9b6c2"; g.lineWidth = Math.max(1, s * .08); g.beginPath();
+    g.moveTo(...P(sh.xa, sh.base)); g.lineTo(...P(sh.xb, sh.top)); g.stroke();
+    if (sl.id === selectedSlope) { g.strokeStyle = "#ffe420"; g.setLineDash([4, 3]); g.lineWidth = 2; g.beginPath(); g.moveTo(...P(sh.xa, sh.base)); g.lineTo(...P(sh.xb, sh.top)); g.lineTo(...P(sh.xb, sh.top - sl.width)); g.lineTo(...P(sh.xa, sh.base - sl.width)); g.closePath(); g.stroke(); g.setLineDash([]); }
+    if (s >= 8 && !ghost) { const m = P((sh.xa + sh.xb) / 2, (sh.base + sh.top) / 2 - sl.width / 2); label(`坂 ${sl.len}段`, m[0] - 14, m[1] + 4, "#ffffff"); }
+  }
+}
+let selectedSlope = null;
+function slopeAt(gx, gy) {
+  const cx = gx + .5, cy = gy + .5;
+  for (let k = slopes.length - 1; k >= 0; k--) {
+    const sh = slopeShape(slopes[k]);
+    const lo = Math.min(sh.xa, sh.xb), hi = Math.max(sh.xa, sh.xb);
+    if (cx < lo || cx > hi) continue;
+    if (cy <= sh.base && cy >= sh.front(cx) - slopes[k].width) return slopes[k];
+  }
+  return null;
+}
+function slopeFromDrag(a, b) {
+  // a = 押した所（下の端）, b = 離した所。45度にそろえる。
+  const dx = b.x - a.x, dy = a.y - b.y;
+  const len = Math.max(1, Math.min(10, Math.max(Math.abs(dx), dy) + 1)); // 押した所と離した所の両方のマスを含める
+  return { id: "sl" + Date.now().toString(36), dir: dx >= 0 ? "r" : "l", x: a.x + OX, y: a.y + OY, len, width: brushSize() };
 }
 function drawPlayer(g, sx, sy, s) {
   const px = player.x - OX, py = player.y - OY;
@@ -590,7 +649,7 @@ cv.addEventListener("pointerdown", (e) => {
     gesture = { type: "pan", start: { x: e.clientX, y: e.clientY }, view: { ...view } };
     return;
   }
-  if (tool === "rect" || tool === "marker" || tool === "heightRect") { gesture = { type: "rect" }; dragRect = { type: tool, a: t, b: t }; requestDraw(); return; }
+  if (tool === "rect" || tool === "marker" || tool === "heightRect" || tool === "slope") { gesture = { type: "rect" }; dragRect = { type: tool, a: t, b: t }; requestDraw(); return; }
   if (tool === "erase") { gesture = { type: "erase", t }; return; }
   if (tool === "player") {
     gesture = { type: "player", prev: { ...player } };
@@ -665,7 +724,9 @@ function endPointer(e) {
     // タップした所の物を消す。物が無ければ印を消す。
     const gx = gesture.t.x + OX, gy = gesture.t.y + OY;
     const o = objectAt(gx, gy);
+    const sl = o ? null : slopeAt(gx, gy);
     if (o) removeObject(o.id);
+    else if (sl) { undoStack.push({ type: "slopes", prev: slopes.map((x) => ({ ...x })) }); slopes = slopes.filter((x) => x.id !== sl.id); markDirty(); updateSummary(); }
     else {
       for (let k = markers.length - 1; k >= 0; k--) {
         const m = markers[k];
@@ -693,7 +754,10 @@ function endPointer(e) {
   if (gesture.type === "paint") endStroke();
   if (gesture.type === "rect" && dragRect) {
     const r = normRect(dragRect);
-    if (dragRect.type === "heightRect") {
+    if (dragRect.type === "slope") {
+      undoStack.push({ type: "slopes", prev: slopes.map((x) => ({ ...x })) });
+      const sl = slopeFromDrag(dragRect.a, dragRect.b); slopes.push(sl); selectedSlope = sl.id; markDirty(); updateSummary();
+    } else if (dragRect.type === "heightRect") {
       const lv = parseInt(document.getElementById("level").value, 10);
       beginStroke();
       for (let y = r.y - OY; y < r.y - OY + r.h; y++) for (let x = r.x - OX; x < r.x - OX + r.w; x++) if (inMap(x, y)) setHeight(y * W + x, lv);
@@ -807,6 +871,7 @@ function undo() {
     if (u.heights) restoreHeights(u.heights);
   } else if (u.type === "markers") { markers = u.prev; renderMarkers(); }
   else if (u.type === "objects") { objects = u.prev; selectedObj = null; renderObjects(); }
+  else if (u.type === "slopes") { slopes = u.prev; selectedSlope = null; }
   markDirty(); updateSummary(); requestDraw();
 }
 document.getElementById("undo").onclick = undo;
@@ -861,6 +926,7 @@ function updateSummary() {
   if (rem) parts.push(`木を ${rem}本 消した`);
   const hc = {}; for (const [, v] of heightEdits) hc[v] = (hc[v] || 0) + 1;
   for (const [v, n] of Object.entries(hc)) parts.push(`${v}段の高さ ${n}マス`);
+  if (slopes.length) parts.push(`坂 ${slopes.length}本`);
   if (objects.length) parts.push(`置いた物 ${objects.length}個`);
   if (markers.length) parts.push(`印 ${markers.length}個`);
   document.getElementById("summary").textContent = parts.length ? parts.join("、") : "まだ何も変えていません。";
@@ -879,6 +945,8 @@ function serialize() {
     heights: [...heightEdits].sort((a, b) => a[0] - b[0]).map(([i, v]) => `${i % W + OX},${((i / W) | 0) + OY},${v}`).join(";"),
     heightsFormat: "x,y,段。段は 0 が平地、1 以上が高い所（崖の上）。手前（下）向きの崖の壁は1段につき1マスで、高い所のすぐ下のマスに立つ",
     player: { x: player.x, y: player.y, view: `${Math.round(VIEW_W * parseInt(document.getElementById("camZoom").value, 10))}x${Math.round(VIEW_H * parseInt(document.getElementById("camZoom").value, 10))}`, note: "x,y は主人公の足元（マス）。view は見える範囲（マス）" },
+    slopes: slopes.map(({ dir, x, y, len, width }) => ({ dir, x, y, len, width })),
+    slopesFormat: "坂。x,y は坂の下の端のマス。dir は r=右上がり・l=左上がり。45度で len 段上る（壁は1段1マス）。width は坂の幅（縦のマス数）",
     objects: objects.map(({ id, type, x, y, w, h }) => ({ id, type, name: (OBJ[type] || {}).name || type, x, y, w, h })),
     markers: markers.map(({ id, x, y, w, h, label, color }) => ({ id, x, y, w, h, label, color })),
   };
@@ -893,6 +961,8 @@ function deserialize(d) {
   for (const part of (d.heights || "").split(";")) { if (!part) continue; const [x, y, v] = part.split(","); const i = (+y - OY) * W + (+x - OX); if (i >= 0 && i < W * H && +v > 0) heightEdits.set(i, +v); }
   objects = Array.isArray(d.objects) ? d.objects.filter((o) => o && o.type).map(({ id, type, x, y, w, h }) => ({ id: id || "o" + Math.random().toString(36).slice(2, 8), type, x: +x, y: +y, w: +w || 1, h: +h || 1 })) : [];
   selectedObj = null; renderObjects();
+  slopes = Array.isArray(d.slopes) ? d.slopes.filter((x) => x && (x.dir === "r" || x.dir === "l")).map((x) => ({ id: "sl" + Math.random().toString(36).slice(2, 8), dir: x.dir, x: +x.x, y: +x.y, len: Math.max(1, +x.len || 1), width: Math.max(1, +x.width || 1) })) : [];
+  selectedSlope = null;
   if (d.player && isFinite(d.player.x) && isFinite(d.player.y)) player = { x: +d.player.x, y: +d.player.y };
   document.getElementById("sketchName").value = d.name || "";
   document.getElementById("note").value = d.note || "";
@@ -945,8 +1015,8 @@ function askConfirm(text, okLabel, onOk) {
   row.append(ok, no); box.append(p, row);
 }
 document.getElementById("newSketch").onclick = () => {
-  const go = () => { sketchId = null; deserialize({ name: "新しい下書き", note: "", tiles: "", trees: "", heights: "", objects: [], markers: [] }); dirty = false; try { localStorage.removeItem(DRAFT_KEY); } catch (e) {} setStatus(""); };
-  if (dirty && (tileEdits.size || treeEdits.size || markers.length || heightEdits.size || objects.length)) askConfirm("保存していない変更があります。消して新しく始めますか？", "消して始める", go); else go();
+  const go = () => { sketchId = null; deserialize({ name: "新しい下書き", note: "", tiles: "", trees: "", heights: "", objects: [], slopes: [], markers: [] }); dirty = false; try { localStorage.removeItem(DRAFT_KEY); } catch (e) {} setStatus(""); };
+  if (dirty && (tileEdits.size || treeEdits.size || markers.length || heightEdits.size || objects.length || slopes.length)) askConfirm("保存していない変更があります。消して新しく始めますか？", "消して始める", go); else go();
 };
 
 function renderSketchList(docs) {
@@ -985,6 +1055,7 @@ function renderPng() {
   g.font = "600 13px sans-serif";
   const lab = (t, x, y, col) => { const m = g.measureText(t); g.fillStyle = "rgba(20,18,24,.8)"; g.fillRect(x - 3, y - 13, m.width + 6, 17); g.fillStyle = col; g.fillText(t, x, y); };
   for (const p of BASE.projects) { g.strokeStyle = "#fff"; g.lineWidth = 2; g.strokeRect((p.x - OX) * s, (p.y - OY) * s, p.w * s, p.h * s); lab(p.label, (p.x - OX) * s, (p.y - OY) * s - 4, "#fff"); }
+  drawSlopes(g, (x) => x * s, (y) => y * s, s, slopes, false);
   for (const o of objects) drawObject(g, o, (o.x - OX) * s, (o.y - OY) * s, s, false);
   for (const m of markers) { g.strokeStyle = m.color; g.lineWidth = 3; g.strokeRect((m.x - OX) * s, (m.y - OY) * s, m.w * s, m.h * s); lab(m.label, (m.x - OX) * s, (m.y - OY + m.h) * s + 16, m.color); }
   return new Promise((res) => c.toBlob(res, "image/png"));

@@ -404,10 +404,12 @@ function normRect(d) {
 
 cv.addEventListener("contextmenu", (e) => e.preventDefault());
 cv.addEventListener("pointerdown", (e) => {
-  cv.setPointerCapture(e.pointerId);
+  try { cv.setPointerCapture(e.pointerId); } catch (err) {}
   pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
   if (pointers.size === 2) {
-    if (stroke) { endStroke(); }
+    // 2本目の指が来たら、1本目で塗り始めた分は取り消して、動かす・拡大にする。
+    if (gesture && gesture.timer) clearTimeout(gesture.timer);
+    if (stroke) cancelStroke();
     dragRect = null;
     const [p, q] = [...pointers.values()];
     gesture = { type: "pinch", dist: Math.hypot(p.x - q.x, p.y - q.y), mid: { x: (p.x + q.x) / 2, y: (p.y + q.y) / 2 }, view: { ...view } };
@@ -420,9 +422,26 @@ cv.addEventListener("pointerdown", (e) => {
     return;
   }
   if (tool === "rect" || tool === "marker") { gesture = { type: "rect" }; dragRect = { type: tool, a: t, b: t }; requestDraw(); return; }
+  if (e.pointerType === "touch") {
+    // 指では少し待ってから塗り始める。すぐ2本目の指が来たら、塗らずに動かす・拡大にする。
+    gesture = { type: "pending", first: t, start: { x: e.clientX, y: e.clientY } };
+    gesture.timer = setTimeout(() => startPaint(gesture), 140);
+    return;
+  }
   gesture = { type: "paint", last: t };
   beginStroke(); applyBrush(t.x, t.y); requestDraw(); updateSummary();
 });
+function startPaint(g) {
+  if (!g || gesture !== g || g.type !== "pending") return;
+  g.type = "paint"; g.last = g.first; g.timer = null;
+  beginStroke(); applyBrush(g.first.x, g.first.y); requestDraw(); updateSummary();
+}
+function cancelStroke() {
+  if (!stroke) return;
+  for (const [i, prev] of stroke.tiles) { if (prev < 0) tileEdits.delete(i); else tileEdits.set(i, prev); }
+  for (const [i, prev] of stroke.trees) { if (prev === null) treeEdits.delete(i); else treeEdits.set(i, prev); }
+  stroke = null; updateSummary(); requestDraw();
+}
 cv.addEventListener("pointermove", (e) => {
   if (pointers.has(e.pointerId)) pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
   const t = tileFromEvent(e);
@@ -436,6 +455,8 @@ cv.addEventListener("pointermove", (e) => {
     const g = gesture, ns = clampScale(g.view.scale * dist / g.dist);
     const gx = g.view.x + (g.mid.x - r.left) / g.view.scale, gy = g.view.y + (g.mid.y - r.top) / g.view.scale;
     view.scale = ns; view.x = gx - (mid.x - r.left) / ns; view.y = gy - (mid.y - r.top) / ns;
+  } else if (gesture.type === "pending") {
+    if (Math.hypot(e.clientX - gesture.start.x, e.clientY - gesture.start.y) > 8) { clearTimeout(gesture.timer); startPaint(gesture); if (stroke) { lineTiles(gesture.last, t, (x, y) => applyBrush(x, y)); gesture.last = t; updateSummary(); } }
   } else if (gesture.type === "pan") {
     view.x = gesture.view.x - (e.clientX - gesture.start.x) / view.scale;
     view.y = gesture.view.y - (e.clientY - gesture.start.y) / view.scale;
@@ -451,6 +472,7 @@ function endPointer(e) {
   pointers.delete(e.pointerId);
   if (!gesture) return;
   if (gesture.type === "pinch") { if (pointers.size === 0) gesture = null; return; }
+  if (gesture.type === "pending") { clearTimeout(gesture.timer); gesture.type = "paint"; gesture.last = gesture.first; beginStroke(); applyBrush(gesture.first.x, gesture.first.y); updateSummary(); }
   if (gesture.type === "paint") endStroke();
   if (gesture.type === "rect" && dragRect) {
     const r = normRect(dragRect);

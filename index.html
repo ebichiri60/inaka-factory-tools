@@ -62,13 +62,20 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .seqitem .mini{display:flex;gap:2px}
 .seqitem .mini button{min-height:28px;padding:0 6px;font-size:13px;border-width:2px}
 input[type=text]{font:inherit;padding:4px 8px;border:2px solid var(--line);border-radius:4px;background:var(--bg);color:var(--fg);width:100%;box-sizing:border-box}
+.toolnav{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
+.toolnav a{display:flex;flex-direction:column;gap:2px;padding:8px 12px;border:2px solid var(--accent);border-radius:6px;color:var(--fg);text-decoration:none;font-weight:700;min-width:0}
+.toolnav a:hover,.toolnav a:focus-visible{background:var(--accent);color:var(--bg)}
+.toolnav small{font-weight:400;font-size:12px;opacity:.85}
 </style>
 
 <div class="wrap">
   <header style="display:grid;gap:4px">
     <h1>ドット絵アニメ確認</h1>
     <p class="lead">横に並べた絵（スプライトシート）か、1コマずつの絵を何枚か選ぶと、その場で動かして見られます。絵はこの画面の中だけで使い、どこにも送りません。</p>
-    <p class="lead">ほかのツール：<a href="tile_tryout.html" style="color:var(--accent)">タイル試し置き場</a>（地面のタイルを並べて、つながり方を確かめる）、<a href="map_sketch.html" style="color:var(--accent)">マップ下書き帳</a>（外のマップを塗って、地形の案を伝える）</p>
+    <nav class="toolnav" aria-label="ほかのツール">
+      <a href="tile_tryout.html">タイル試し置き場<small>地面のタイルのつながり方を確かめる</small></a>
+      <a href="map_sketch.html">マップ下書き帳<small>外のマップを塗って、地形の案を伝える</small></a>
+    </nav>
   </header>
 
   <div class="main">

@@ -238,6 +238,8 @@ const OBJECTS = [
   { type: "bridge_h", name: "橋（横向き）", w: 4, h: 2, color: "#a7865a" },
   { type: "bridge_v", name: "橋（縦向き）", w: 2, h: 4, color: "#a7865a" },
   { type: "stairs", name: "階段・坂", w: 2, h: 2, color: "#cbc6be" },
+  { type: "ramp_r", name: "坂（右上がり）", w: 3, h: 2, color: "#d9c08c" },
+  { type: "ramp_l", name: "坂（左上がり）", w: 3, h: 2, color: "#d9c08c" },
   { type: "mill", name: "石うす", w: 1, h: 1, img: "mill" },
   { type: "box", name: "木の箱", w: 1, h: 1, color: "#d9c08c" },
   { type: "fence", name: "柵", w: 1, h: 1, color: "#5e4430" },
@@ -429,7 +431,24 @@ function drawObject(g, o, X, Y, s, selected) {
       for (let k = 1; k < n; k++) { if (o.type === "bridge_h") { g.moveTo(X + k * w / n, Y); g.lineTo(X + k * w / n, Y + h); } else { g.moveTo(X, Y + k * h / n); g.lineTo(X + w, Y + k * h / n); } }
       g.stroke();
     }
-    if (s * Math.min(o.w, o.h) >= 14) { g.font = `700 ${Math.max(9, Math.min(14, s * .8))}px sans-serif`; g.fillStyle = "#332222"; g.fillText(def.name.slice(0, Math.max(1, Math.floor(w / (s * .8)))), X + 3, Y + Math.min(h - 3, s * .9)); }
+    if (o.type === "ramp_r" || o.type === "ramp_l") {
+      // 斜めの段々。右上がりなら左下から右上へ上っていく形。
+      const up = o.type === "ramp_r";
+      g.save(); g.beginPath(); g.rect(X, Y, w, h); g.clip();
+      g.fillStyle = "rgba(110,90,122,.55)"; g.beginPath();
+      if (up) { g.moveTo(X, Y + h); g.lineTo(X + w, Y); g.lineTo(X + w, Y + h); } else { g.moveTo(X + w, Y + h); g.lineTo(X, Y); g.lineTo(X, Y + h); }
+      g.closePath(); g.fill();
+      g.strokeStyle = "rgba(51,34,34,.55)"; g.lineWidth = Math.max(1, s * .08); g.beginPath();
+      const step = Math.max(3, s * .5);
+      for (let k = -h; k < w + h; k += step) { if (up) { g.moveTo(X + k, Y + h); g.lineTo(X + k + h, Y); } else { g.moveTo(X + k, Y); g.lineTo(X + k + h, Y + h); } }
+      g.stroke();
+      g.strokeStyle = "#332222"; g.lineWidth = Math.max(1.5, s * .12); g.beginPath();
+      const ax = up ? X + w * .25 : X + w * .75, bx = up ? X + w * .8 : X + w * .2;
+      g.moveTo(ax, Y + h * .75); g.lineTo(bx, Y + h * .25);
+      g.lineTo(bx + (up ? -s * .35 : s * .35), Y + h * .25); g.moveTo(bx, Y + h * .25); g.lineTo(bx, Y + h * .25 + s * .35);
+      g.stroke(); g.restore();
+      g.strokeStyle = "#332222"; g.lineWidth = Math.max(1, s * .1); g.strokeRect(X, Y, w, h);
+    } else if (s * Math.min(o.w, o.h) >= 14) { g.font = `700 ${Math.max(9, Math.min(14, s * .8))}px sans-serif`; g.fillStyle = "#332222"; g.fillText(def.name.slice(0, Math.max(1, Math.floor(w / (s * .8)))), X + 3, Y + Math.min(h - 3, s * .9)); }
   }
   if (selected) { g.strokeStyle = "#ffe420"; g.lineWidth = 2; g.setLineDash([4, 3]); g.strokeRect(X - 2, Y - 2, w + 4, h + 4); g.setLineDash([]); }
 }

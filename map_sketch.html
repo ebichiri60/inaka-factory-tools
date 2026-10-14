@@ -224,7 +224,7 @@ const BASE = {"ox":1000,"oy":1000,"w":240,"h":160,"k":"gm12g2w2g2m220gm14w4m236w
 // ---------- 地面の種類（ゲームの ground_kinds.json と同じ名前） ----------
 const KINDS = [
   { code: "g", name: "草", id: "grass", color: "#69ad46" },
-  { code: "t", name: "草むら", id: "grass_tuft", color: "#65a843", hidden: true },
+  { code: "t", name: "草むら", id: "grass_tuft", color: "#69ad46", hidden: true }, // 草むらは物として置く予定なので、地面では草と同じ色
   { code: "w", name: "水", id: "water", color: "#4f8fc0" },
   { code: "d", name: "干からびた水路", id: "dry_canal", color: "#d9c08c" },
   { code: "r", name: "道", id: "road", color: "#bd8145" },
@@ -250,6 +250,7 @@ const OBJECTS = [
   { type: "stairs", name: "階段・坂", w: 2, h: 2, color: "#cbc6be" },
   { type: "ramp_r", name: "坂（右上がり）", w: 1, h: 1, color: "#d9c08c" },
   { type: "ramp_l", name: "坂（左上がり）", w: 1, h: 1, color: "#d9c08c" },
+  { type: "tuft", name: "草むら", w: 1, h: 1, color: "#21774f" },
   { type: "mill", name: "石うす", w: 1, h: 1, img: "mill" },
   { type: "box", name: "木の箱", w: 1, h: 1, color: "#d9c08c" },
   { type: "fence", name: "柵", w: 1, h: 1, color: "#5e4430" },
@@ -524,6 +525,14 @@ function drawPlayer(g, sx, sy, s) {
 function drawObject(g, o, X, Y, s, selected) {
   const def = OBJ[o.type] || { name: o.type, color: "#f00060" };
   const w = o.w * s, h = o.h * s;
+  if (o.type === "tuft") {
+    g.fillStyle = "#21774f";
+    const blade = (bx, h2) => g.fillRect(X + w * bx, Y + h * (1 - h2) - h * .08, Math.max(1, w * .12), h * h2);
+    blade(.22, .45); blade(.42, .62); blade(.62, .5); blade(.78, .35);
+    g.fillStyle = "#b5d65a"; g.fillRect(X + w * .44, Y + h * .32, Math.max(1, w * .08), Math.max(1, h * .1));
+    if (selected) { g.strokeStyle = "#ffe420"; g.lineWidth = 2; g.setLineDash([4, 3]); g.strokeRect(X - 2, Y - 2, w + 4, h + 4); g.setLineDash([]); }
+    return;
+  }
   if (def.img && IMG[def.img] && IMG[def.img].complete && IMG[def.img].naturalWidth) {
     g.imageSmoothingEnabled = false; g.drawImage(IMG[def.img], X, Y, w, h);
   } else {

@@ -108,6 +108,7 @@ textarea { resize: vertical; min-height: 64px; }
       <button class="btn" id="tool-restore" data-tool="restore" aria-pressed="false">元に戻す筆</button>
       <button class="btn" id="tool-marker" data-tool="marker" aria-pressed="false">印をつける</button>
       <button class="btn" id="tool-object" data-tool="object" aria-pressed="false">物を置く</button>
+      <button class="btn" id="tool-erase" data-tool="erase" aria-pressed="false">物・印を消す</button>
       <button class="btn" id="tool-player" data-tool="player" aria-pressed="false">主人公を動かす</button>
       <button class="btn" id="tool-pan" data-tool="pan" aria-pressed="false">動かす</button>
     </div>
@@ -210,7 +211,7 @@ textarea { resize: vertical; min-height: 64px; }
       <section>
         <h2>色の見方</h2>
         <div class="legend" id="legend"></div>
-        <p class="help" style="margin-top:8px">高さ：「高さの筆」で段を塗ると、段の境目に崖が描かれます。1段の上に2段を塗れば、崖の上の崖になります（手前向きの崖の壁は1段につき1マスで、塗った所のすぐ下に描かれます）。<br>主人公：「主人公を動かす」でタップかドラッグ。黄色い点線の枠が、ゲームの画面に映る範囲です（カメラは主人公の足元が真ん中）。<br>パソコン：左ボタンで塗る、右ボタンかスペースを押しながらで動かす、ホイールで拡大。スマホ：1本指で塗る、2本指で動かす・拡大。</p>
+        <p class="help" style="margin-top:8px">高さ：「高さの筆」で段を塗ると、段の境目に崖が描かれます。1段の上に2段を塗れば、崖の上の崖になります（手前向きの崖の壁は1段につき1マスで、塗った所のすぐ下に描かれます）。<br>消す：「物・印を消す」を選んで、地図の上の物か印をタップすると消えます。<br>主人公：「主人公を動かす」でタップかドラッグ。黄色い点線の枠が、ゲームの画面に映る範囲です（カメラは主人公の足元が真ん中）。<br>パソコン：左ボタンで塗る、右ボタンかスペースを押しながらで動かす、ホイールで拡大。スマホ：1本指で塗る、2本指で動かす・拡大。</p>
       </section>
     </aside>
   </div>
@@ -590,6 +591,7 @@ cv.addEventListener("pointerdown", (e) => {
     return;
   }
   if (tool === "rect" || tool === "marker" || tool === "heightRect") { gesture = { type: "rect" }; dragRect = { type: tool, a: t, b: t }; requestDraw(); return; }
+  if (tool === "erase") { gesture = { type: "erase", t }; return; }
   if (tool === "player") {
     gesture = { type: "player", prev: { ...player } };
     player = { x: t.x + OX + .5, y: t.y + OY + 1 }; requestDraw(); updateHud(); return;
@@ -659,6 +661,22 @@ function endPointer(e) {
   if (!gesture) return;
   if (gesture.type === "pinch") { if (pointers.size === 0) gesture = null; return; }
   if (gesture.type === "player") { markDirty(); gesture = null; requestDraw(); return; }
+  if (gesture.type === "erase") {
+    // タップした所の物を消す。物が無ければ印を消す。
+    const gx = gesture.t.x + OX, gy = gesture.t.y + OY;
+    const o = objectAt(gx, gy);
+    if (o) removeObject(o.id);
+    else {
+      for (let k = markers.length - 1; k >= 0; k--) {
+        const m = markers[k];
+        if (gx >= m.x && gy >= m.y && gx < m.x + m.w && gy < m.y + m.h) {
+          undoStack.push({ type: "markers", prev: markers.map((x) => ({ ...x })) });
+          markers = markers.filter((x) => x.id !== m.id); markDirty(); renderMarkers(); updateSummary(); break;
+        }
+      }
+    }
+    gesture = null; requestDraw(); return;
+  }
   if (gesture.type === "objdown") {
     if (gesture.hit && gesture.moved) { undoStack.push({ type: "objects", prev: gesture.before }); markDirty(); renderObjects(); }
     else if (!gesture.hit) {
@@ -814,7 +832,7 @@ document.getElementById("markerOk").onclick = () => {
   undoStack.push({ type: "markers", prev: markers.map((m) => ({ ...m })) });
   if (editingMarkerId) markers = markers.map((m) => m.id === editingMarkerId ? { ...m, label: lab, color: markerColor } : m);
   else markers.push({ id: "m" + Date.now().toString(36), ...pendingMarker, label: lab, color: markerColor });
-  closeMarkerEditor(); markDirty(); renderMarkers(); requestDraw();
+  closeMarkerEditor(); markDirty(); renderMarkers(); updateSummary(); requestDraw();
 };
 document.getElementById("markerCancel").onclick = () => { closeMarkerEditor(); requestDraw(); };
 document.getElementById("markerLabel").addEventListener("keydown", (e) => { if (e.key === "Enter") document.getElementById("markerOk").click(); });

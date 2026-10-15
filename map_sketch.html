@@ -120,6 +120,7 @@ textarea { resize: vertical; min-height: 64px; }
       <button class="btn" id="tool-wall" data-tool="wall" aria-pressed="false">崖の筆</button>
       <button class="btn" id="tool-wallRect" data-tool="wallRect" aria-pressed="false">四角で崖</button>
       <button class="btn" id="tool-side" data-tool="side" aria-pressed="false">崖の横の面</button>
+      <button class="btn" id="tool-back" data-tool="back" aria-pressed="false">崖の奥のふち</button>
       <button class="btn" id="tool-unwall" data-tool="unwall" aria-pressed="false">崖を消す</button>
       <button class="btn" id="tool-slope" data-tool="slope" aria-pressed="false">坂を引く</button>
     </div>
@@ -214,7 +215,7 @@ textarea { resize: vertical; min-height: 64px; }
       <section>
         <h2>色の見方</h2>
         <div class="legend" id="legend"></div>
-        <p class="help" style="margin-top:8px">崖：「崖の筆」で塗ったマスが、崖の壁（側面）になります。縦に2マス塗れば2マス分の高い崖です。上の地面は塗らなくてかまいません。<br>崖の横の面：「崖の横の面」で、マスの境目に沿って縦になぞると、崖の左右の側面が描けます。なぞり始めた所にいちばん近い境目の線に付きます。<br>「崖を消す」は、崖の壁も横の面も消します。<br>坂：「坂を引く」で、坂の下の端のマスから、上の端のマスまで斜めになぞります。45度にそろい、1マス進むごとに1段上がります。幅は「太さ」のマス数です。<br>消す：「物・印を消す」を選んで、地図の上の物か印をタップすると消えます。<br>主人公：「主人公を動かす」でタップかドラッグ。黄色い点線の枠が、ゲームの画面に映る範囲です（カメラは主人公の足元が真ん中）。<br>パソコン：左ボタンで塗る、右ボタンかスペースを押しながらで動かす、ホイールで拡大。スマホ：1本指で塗る、2本指で動かす・拡大。</p>
+        <p class="help" style="margin-top:8px">崖：「崖の筆」で塗ったマスが、崖の壁（側面）になります。縦に2マス塗れば2マス分の高い崖です。上の地面は塗らなくてかまいません。<br>崖の横の面：「崖の横の面」で、マスの境目に沿って縦になぞると、崖の左右の側面が描けます。なぞり始めた所にいちばん近い境目の線に付きます。<br>崖の奥のふち：台地の奥の終わり（崖の上の地面がそこで切れる所）を、マスの境目に沿って横になぞります。ふちは境目のすぐ下のマス（台地の側）に描かれます。<br>「崖を消す」は、崖の壁も横の面も奥のふちも消します。<br>坂：「坂を引く」で、坂の下の端のマスから、上の端のマスまで斜めになぞります。45度にそろい、1マス進むごとに1段上がります。幅は「太さ」のマス数です。<br>消す：「物・印を消す」を選んで、地図の上の物か印をタップすると消えます。<br>主人公：「主人公を動かす」でタップかドラッグ。黄色い点線の枠が、ゲームの画面に映る範囲です（カメラは主人公の足元が真ん中）。<br>パソコン：左ボタンで塗る、右ボタンかスペースを押しながらで動かす、ホイールで拡大。スマホ：1本指で塗る、2本指で動かす・拡大。</p>
       </section>
     </aside>
   </div>
@@ -287,6 +288,8 @@ let markers = [];            // {id,x,y,w,h,label,color} ゲーム座標
 let wallEdits = new Set();   // idx 崖の壁（側面）のマス
 let sideEdits = new Set();   // y*(W+1)+lx 崖の横の面。lx はマスの左の境目の線（0〜W）
 let sideLineX = 0;           // 横の面を引いている線
+let backEdits = new Set();   // ly*W+x 崖の奥のふち。ly はマスの上の境目の線（0〜H）。ふちは (x,ly) のマスの上の端
+let backLineY = 0;           // 奥のふちを引いている線
 let objects = [];            // {id,type,x,y,w,h} ゲーム座標
 let selectedObj = null;
 let slopes = [];             // {id,dir:"r"|"l",x,y,len,width} x,y は坂の下の端のマス（ゲーム座標）
@@ -302,6 +305,7 @@ const treeAt = (i) => treeEdits.has(i) ? treeEdits.get(i) : baseTrees.has(i);
 const tuftAt = (i) => tuftEdits.has(i) ? tuftEdits.get(i) : baseTufts.has(i);
 const sideAt = (lx, y) => lx >= 0 && y >= 0 && lx <= W && y < H && sideEdits.has(y * (W + 1) + lx);
 // 横の面がどちらのマスに付くか。線の下を見て、手前の壁がある側（台地の側）を返す。1=右のマス、-1=左のマス、0=分からない
+const backAt = (x, ly) => x >= 0 && x < W && ly >= 0 && ly <= H && backEdits.has(ly * W + x);
 function sideDir(lx, y) {
   for (let yy = y; yy < Math.min(H, y + 24); yy++) {
     const r = wallAt(lx, yy), l = wallAt(lx - 1, yy);
@@ -375,6 +379,7 @@ function draw() {
   }
   drawWalls(ctx, x0, y0, x1, y1, sx, sy, s);
   drawSides(ctx, x0, y0, x1, y1, sx, sy, s);
+  drawBacks(ctx, x0, y0, x1, y1, sx, sy, s);
   drawSlopes(ctx, sx, sy, s, slopes, false);
   if (dragRect && dragRect.type === "slope") drawSlopes(ctx, sx, sy, s, [slopeFromDrag(dragRect.a, dragRect.b)], true);
   // 橋
@@ -433,6 +438,10 @@ function draw() {
     const o = OBJ[document.getElementById("objType").value];
     if (o) { ctx.globalAlpha = .55; drawObject(ctx, { type: o.type, w: o.w, h: o.h }, sx(hover.x - Math.floor(o.w / 2)), sy(hover.y - (o.h - 1)), s, false); ctx.globalAlpha = 1; }
   }
+  if (hover && tool === "back" && hover.fy !== undefined) {
+    const ly = gesture && gesture.type === "paint" ? backLineY : Math.round(hover.fy);
+    ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(sx(hover.x), sy(ly)); ctx.lineTo(sx(hover.x + 1), sy(ly)); ctx.stroke();
+  }
   if (hover && tool === "side" && hover.fx !== undefined) {
     const lx = gesture && gesture.type === "paint" ? sideLineX : Math.round(hover.fx);
     ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(sx(lx), sy(hover.y)); ctx.lineTo(sx(lx), sy(hover.y + 1)); ctx.stroke();
@@ -476,6 +485,18 @@ function drawSides(g, x0, y0, x1, y1, sx, sy, s) {
     g.fillStyle = "#534750"; g.fillRect(X, Y, edge, s); g.fillRect(X + w - edge, Y, edge, s);
     if (!sideAt(lx, y - 1)) { g.fillStyle = "#a9b6c2"; g.fillRect(X, Y, w, Math.max(1, edge)); }
     if (!sideAt(lx, y + 1) && !wallAt(lx, y + 1) && !wallAt(lx - 1, y + 1)) { g.fillStyle = "#534750"; g.fillRect(X, Y + s - edge * 1.5, w, edge * 1.5); }
+  }
+}
+// 崖の奥のふち：台地の奥の終わり。境目のすぐ下のマス（台地の側）の上の端に、細い横の帯を描く。
+function drawBacks(g, x0, y0, x1, y1, sx, sy, s) {
+  if (!backEdits.size) return;
+  const h = Math.max(2, s * 0.2), edge = Math.max(1, s * 0.08);
+  for (let ly = y0; ly <= y1; ly++) for (let x = x0; x < x1; x++) {
+    if (!backAt(x, ly)) continue;
+    const X = sx(x), Y = sy(ly);
+    g.fillStyle = "#6e5a7a"; g.fillRect(X, Y, s, h);
+    g.fillStyle = "#534750"; g.fillRect(X, Y, s, edge);
+    g.fillStyle = "#a9b6c2"; g.fillRect(X, Y + h - Math.max(1, edge * .8), s, Math.max(1, edge * .8));
   }
 }
 // 坂：下の端のマス(x,y)から45度で len マス上る。幅は縦のマス数。手前のふちの下は壁。
@@ -614,15 +635,15 @@ let stroke = null;
 
 function tileFromEvent(e) {
   const r = cv.getBoundingClientRect();
-  const fx = view.x + (e.clientX - r.left) / view.scale;
-  return { x: Math.floor(fx), y: Math.floor(view.y + (e.clientY - r.top) / view.scale), fx };
+  const fx = view.x + (e.clientX - r.left) / view.scale, fy = view.y + (e.clientY - r.top) / view.scale;
+  return { x: Math.floor(fx), y: Math.floor(fy), fx, fy };
 }
 function brushSize() { return parseInt(document.getElementById("brush").value, 10); }
 function inMap(x, y) { return x >= 0 && y >= 0 && x < W && y < H; }
 
-function beginStroke() { stroke = { tiles: new Map(), trees: new Map(), walls: new Map(), sides: new Map(), tufts: new Map() }; }
+function beginStroke() { stroke = { tiles: new Map(), trees: new Map(), walls: new Map(), sides: new Map(), backs: new Map(), tufts: new Map() }; }
 function endStroke() {
-  if (stroke && (stroke.tiles.size || stroke.trees.size || stroke.walls.size || stroke.sides.size || stroke.tufts.size)) { undoStack.push({ type: "stroke", ...stroke }); markDirty(); }
+  if (stroke && (stroke.tiles.size || stroke.trees.size || stroke.walls.size || stroke.sides.size || stroke.backs.size || stroke.tufts.size)) { undoStack.push({ type: "stroke", ...stroke }); markDirty(); }
   stroke = null;
 }
 function setTile(i, v) {
@@ -660,10 +681,19 @@ function setSide(lx, y, v) {
   if (!stroke.sides.has(i)) stroke.sides.set(i, prev);
   if (v) sideEdits.add(i); else sideEdits.delete(i);
 }
+function setBack(x, ly, v) {
+  if (x < 0 || x >= W || ly < 0 || ly > H) return;
+  const i = ly * W + x, prev = backEdits.has(i);
+  if (prev === v) return;
+  if (!stroke.backs.has(i)) stroke.backs.set(i, prev);
+  if (v) backEdits.add(i); else backEdits.delete(i);
+}
+function restoreBacks(map) { for (const [i, prev] of map) { if (prev) backEdits.add(i); else backEdits.delete(i); } }
 function restoreSides(map) { for (const [i, prev] of map) { if (prev) sideEdits.add(i); else sideEdits.delete(i); } }
 function restoreWalls(map) { for (const [i, prev] of map) { if (prev) wallEdits.add(i); else wallEdits.delete(i); } }
 function applyBrush(cx, cy) {
   if (tool === "side") { setSide(sideLineX, cy, true); return; }
+  if (tool === "back") { setBack(cx, backLineY, true); return; }
   const b = brushSize(), off = Math.floor((b - 1) / 2);
   for (let y = cy - off; y < cy - off + b; y++) for (let x = cx - off; x < cx - off + b; x++) {
     if (!inMap(x, y)) continue;
@@ -674,8 +704,8 @@ function applyBrush(cx, cy) {
     else if (tool === "tuft") setTuft(i, true);
     else if (tool === "untuft") setTuft(i, false);
     else if (tool === "wall") setWall(i, true);
-    else if (tool === "unwall") { setWall(i, false); setSide(x, y, false); setSide(x + 1, y, false); }
-    else if (tool === "restore") { setTile(i, baseKinds[i]); setTree(i, baseTrees.has(i)); setTuft(i, baseTufts.has(i)); setWall(i, false); setSide(x, y, false); setSide(x + 1, y, false); }
+    else if (tool === "unwall") { setWall(i, false); setSide(x, y, false); setSide(x + 1, y, false); setBack(x, y, false); setBack(x, y + 1, false); }
+    else if (tool === "restore") { setTile(i, baseKinds[i]); setTree(i, baseTrees.has(i)); setTuft(i, baseTufts.has(i)); setWall(i, false); setSide(x, y, false); setSide(x + 1, y, false); setBack(x, y, false); setBack(x, y + 1, false); }
   }
 }
 function lineTiles(a, b, fn) {
@@ -704,6 +734,7 @@ cv.addEventListener("pointerdown", (e) => {
   if (pointers.size > 2) return;
   const t = tileFromEvent(e);
   sideLineX = Math.max(0, Math.min(W, Math.round(t.fx)));
+  backLineY = Math.max(0, Math.min(H, Math.round(t.fy)));
   if (e.button === 1 || e.button === 2 || spaceDown || tool === "pan") {
     gesture = { type: "pan", start: { x: e.clientX, y: e.clientY }, view: { ...view } };
     return;
@@ -738,7 +769,7 @@ function cancelStroke() {
   if (!stroke) return;
   for (const [i, prev] of stroke.tiles) { if (prev < 0) tileEdits.delete(i); else tileEdits.set(i, prev); }
   for (const [i, prev] of stroke.trees) { if (prev === null) treeEdits.delete(i); else treeEdits.set(i, prev); }
-  restoreWalls(stroke.walls); restoreSides(stroke.sides); restoreTufts(stroke.tufts);
+  restoreWalls(stroke.walls); restoreSides(stroke.sides); restoreBacks(stroke.backs); restoreTufts(stroke.tufts);
   stroke = null; updateSummary(); requestDraw();
 }
 cv.addEventListener("pointermove", (e) => {
@@ -926,6 +957,7 @@ function undo() {
     for (const [i, prev] of u.trees) { if (prev === null) treeEdits.delete(i); else treeEdits.set(i, prev); }
     if (u.walls) restoreWalls(u.walls);
     if (u.sides) restoreSides(u.sides);
+    if (u.backs) restoreBacks(u.backs);
     if (u.tufts) restoreTufts(u.tufts);
   } else if (u.type === "markers") { markers = u.prev; renderMarkers(); }
   else if (u.type === "objects") { objects = u.prev; selectedObj = null; renderObjects(); }
@@ -987,6 +1019,7 @@ function updateSummary() {
   if (tr) parts.push(`抜ける草を ${tr}個 消した`);
   if (wallEdits.size) parts.push(`崖の壁 ${wallEdits.size}マス`);
   if (sideEdits.size) parts.push(`崖の横の面 ${sideEdits.size}マス分`);
+  if (backEdits.size) parts.push(`崖の奥のふち ${backEdits.size}マス分`);
   if (slopes.length) parts.push(`坂 ${slopes.length}本`);
   if (objects.length) parts.push(`置いた物 ${objects.length}個`);
   if (markers.length) parts.push(`印 ${markers.length}個`);
@@ -1012,6 +1045,8 @@ function serialize() {
       return dir > 0 ? `${lx + OX},${y + OY},left` : dir < 0 ? `${lx - 1 + OX},${y + OY},right` : `${lx + OX},${y + OY},line`;
     }).join(";"),
     sidesFormat: "崖の横（左右）の面。x,y,left は (x,y) のマスの左の端、x,y,right は (x,y) のマスの右の端に側面がある（どちらも崖の上＝台地の側のマス）。x,y,line は向きが分からないもので、x-1 と x のマスの間の線",
+    backs: [...backEdits].sort((a, b) => a - b).map((i) => `${i % W + OX},${((i / W) | 0) + OY}`).join(";"),
+    backsFormat: "崖の奥のふち（台地の奥の終わり）。x,y は (x,y) のマスの上の端にふちがある。そのマスが台地の側で、上のマスは台地の外",
     player: { x: player.x, y: player.y, view: `${Math.round(VIEW_W * parseInt(document.getElementById("camZoom").value, 10))}x${Math.round(VIEW_H * parseInt(document.getElementById("camZoom").value, 10))}`, note: "x,y は主人公の足元（マス）。view は見える範囲（マス）" },
     slopes: slopes.map(({ dir, x, y, len, width }) => ({ dir, x, y, len, width })),
     slopesFormat: "坂。x,y は坂の下の端のマス。dir は r=右上がり・l=左上がり。45度で len 段上る（壁は1段1マス）。width は坂の幅（縦のマス数）",
@@ -1031,6 +1066,8 @@ function deserialize(d) {
   for (const part of (d.walls || "").split(";")) { if (!part) continue; const [x, y] = part.split(","); const i = (+y - OY) * W + (+x - OX); if (i >= 0 && i < W * H) wallEdits.add(i); }
   sideEdits = new Set();
   for (const part of (d.sides || "").split(";")) { if (!part) continue; const [x, y, e] = part.split(","); const lx = +x - OX + (e === "right" ? 1 : 0), yy = +y - OY; if (lx >= 0 && lx <= W && yy >= 0 && yy < H) sideEdits.add(yy * (W + 1) + lx); }
+  backEdits = new Set();
+  for (const part of (d.backs || "").split(";")) { if (!part) continue; const [x, y] = part.split(","); const xx = +x - OX, ly = +y - OY; if (xx >= 0 && xx < W && ly >= 0 && ly <= H) backEdits.add(ly * W + xx); }
   // 古い下書き（高さを段で塗っていた形）は、手前の崖の壁に置きかえて読む。
   if (d.heights) {
     const old = new Map();
@@ -1098,8 +1135,8 @@ function askConfirm(text, okLabel, onOk) {
   row.append(ok, no); box.append(p, row);
 }
 document.getElementById("newSketch").onclick = () => {
-  const go = () => { sketchId = null; deserialize({ name: "新しい下書き", note: "", tiles: "", trees: "", tufts: "", walls: "", sides: "", objects: [], slopes: [], markers: [] }); dirty = false; try { localStorage.removeItem(DRAFT_KEY); } catch (e) {} setStatus(""); };
-  if (dirty && (tileEdits.size || treeEdits.size || tuftEdits.size || markers.length || wallEdits.size || sideEdits.size || objects.length || slopes.length)) askConfirm("保存していない変更があります。消して新しく始めますか？", "消して始める", go); else go();
+  const go = () => { sketchId = null; deserialize({ name: "新しい下書き", note: "", tiles: "", trees: "", tufts: "", walls: "", sides: "", backs: "", objects: [], slopes: [], markers: [] }); dirty = false; try { localStorage.removeItem(DRAFT_KEY); } catch (e) {} setStatus(""); };
+  if (dirty && (tileEdits.size || treeEdits.size || tuftEdits.size || markers.length || wallEdits.size || sideEdits.size || backEdits.size || objects.length || slopes.length)) askConfirm("保存していない変更があります。消して新しく始めますか？", "消して始める", go); else go();
 };
 
 function renderSketchList(docs) {
@@ -1135,6 +1172,7 @@ function renderPng() {
   for (const b of BASE.bridges) { const [l, t, r, bt] = b.rect; g.fillStyle = b.open ? "#a7865a" : "rgba(167,134,90,.5)"; g.fillRect((l - OX) * s, (t - OY) * s, (r - l + 1) * s, (bt - t + 1) * s); }
   drawWalls(g, 0, 0, W, H, (x) => x * s, (y) => y * s, s);
   drawSides(g, 0, 0, W, H, (x) => x * s, (y) => y * s, s);
+  drawBacks(g, 0, 0, W, H, (x) => x * s, (y) => y * s, s);
   for (let i = 0; i < W * H; i++) if (!treeAt(i) && tuftAt(i) && IMG.tuft.complete) { g.imageSmoothingEnabled = false; g.drawImage(IMG.tuft, (i % W) * s, ((i / W) | 0) * s, s, s); }
   for (let i = 0; i < W * H; i++) if (treeAt(i)) { g.fillStyle = "#21774f"; g.beginPath(); g.arc((i % W + .5) * s, (((i / W) | 0) + .45) * s, s * .38, 0, Math.PI * 2); g.fill(); }
   g.font = "600 13px sans-serif";

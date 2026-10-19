@@ -56,6 +56,11 @@ h1{font-family:var(--display);font-weight:400;font-size:28px;margin:0;letter-spa
       <strong>部屋の下書き帳</strong>
       <span>家の床や家具を置いて、主人公と大きさを見比べ、歩いて通路を確かめる</span>
     </a>
+    <a class="tool" href="village_to_town_gaps.html">
+      <canvas class="icon" data-icon="list" width="10" height="10" aria-hidden="true"></canvas>
+      <strong>村から町への不足一覧</strong>
+      <span>発電所の点灯までに足りないものと、作る順番。本体はゲームのリポジトリの docs にある写し</span>
+    </a>
   </nav>
   <p class="note">前に「ドット絵アニメ確認」をこのページで開いていた人は、上のボタンから開いてください。</p>
 </div>
@@ -65,6 +70,7 @@ const ICONS = {
   room: ["aaaaaaaaaa","abbbbbbbba","abbbbbbbba","abeeeeebba","abeeeeebba","abbbbbbbba","abbbccbbba","abbbccbbba","abbbbbbbba","aaaabbbaaa"],
   anim: ["..........","..aaaa....",".abbbba...",".abcbcb...",".abbbba...","..aaaa..d.","..e..e.ddd","..e..e..d.","..........",".........."],
   tile: ["gggggwwwww","gggggwwwww","ggggwwwwww","gggwwwwwww","ggwwwwwwww","gwwwwwwwww","gwwwwwwwww","ggwwwwwwww","gggwwwwwww","ggggwwwwww"],
+  list: ["bbbbbbbbbb","baabbbbbbb","bbbbbbbbbb","bddbaaaabb","bddbbbbbbb","bbbbbbbbbb","bddbaaaaab","bddbbbbbbb","bbbbbbbbbb","bbbbbbbbbb"],
   map:  ["gggggwwggg","gggggwwggg","gggggwwggg","rrrrrbbrrr","gggggwwggg","ggtggwwggg","gtttgwwggg","ggtggwwggg","gggggwwggg","gggggwwggg"],
 };
 const COLORS = { a:"#332222", b:"#fff3b0", c:"#332222", d:"#ffe420", e:"#32488a", g:"#69ad46", w:"#4f8fc0", r:"#bd8145", b2:"#a7865a", t:"#21774f" };

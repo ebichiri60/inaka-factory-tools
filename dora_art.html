@@ -79,7 +79,12 @@ const DoraArt = (() => {
     }
     return value;
   }
-  return {priorities,statuses,colors,groups,waiting,scale,fileLabel,newest,apiUrl,draftState,draftManifest};
+  // Android の共有画面にはアイビスペイントが出ないため、タップで保存する。iPhone は共有画面（画像を保存も選べる）。
+  function draftAction(userAgent, canShare) {
+    if(/Android/i.test(String(userAgent||"")))return "save";
+    return canShare?"share":"save";
+  }
+  return {priorities,statuses,colors,groups,waiting,scale,fileLabel,newest,apiUrl,draftState,draftManifest,draftAction};
 })();
 if(typeof module!=='undefined') module.exports=DoraArt;
 </script>
@@ -133,20 +138,20 @@ if(typeof module!=='undefined') module.exports=DoraArt;
     const tap=button(' ',async()=>{
       if(!file){status.textContent='PNGを読み込めません。下の保存・開くリンクをお試しください。';return;}
       try{
-        if(navigator.canShare?.({files:[file]}) && navigator.share){
+        if(C.draftAction(navigator.userAgent,!!(navigator.share && navigator.canShare?.({files:[file]})))==="share"){
           await navigator.share({files:[file]});status.textContent='共有画面に渡しました。';return;
         }
       }catch(e){
         if(e.name==='AbortError'){status.textContent='共有を取り消しました。下のリンクからも保存できます。';return;}
       }
-      try{save.click();status.textContent='保存を開始しました。保存されない場合は「原寸を開く」をお試しください。';}
+      try{save.click();status.textContent='保存を開始しました。アイビスペイントで、保存した下書きを読み込んでください。保存されない場合は「原寸を開く」をお試しください。';}
       catch(_){status.textContent='共有・保存できません。「原寸を開く」をお試しください。';}
     });
     tap.className='draft-preview';tap.setAttribute('aria-label','原寸の下書きを共有・保存');tap.replaceChildren(img);scroll.append(tap);
     const links=node('div',undefined,'draft-links'),save=node('a','PNGを保存'),open=node('a','原寸を開く');
     save.href=url;save.download=entry.file;open.href=url;open.target='_blank';open.rel='noopener';
     open.addEventListener('click',e=>{e.preventDefault();try{if(!window.open(url,'_blank'))throw new Error();status.textContent='開いた画像を長押しして保存してください。';}catch(_){status.textContent='共有・保存・別タブ表示ができません。ブラウザの設定や通信を確認してください。';}});
-    links.append(save,open);panel.append(scroll,node('p',entry.description),node('p',entry.size.join('×')+'px・'+entry.frames+'枚。タップで原寸PNGを共有。','muted'),links,status);
+    links.append(save,open);panel.append(scroll,node('p',entry.description),node('p',entry.size.join('×')+'px・'+entry.frames+'枚。タップで原寸PNGを共有または保存。アイビスペイントでは、保存した下書きを画像の読み込みから選びます。','muted'),links,status);
     function resize(){const factor=C.scale(entry.size[0],scroll.clientWidth-2);img.style.width=entry.size[0]*factor+'px';img.style.height=entry.size[1]*factor+'px';}
     const observer=new ResizeObserver(resize);observer.observe(scroll);panel.resizeObserver=observer;
     img.onerror=()=>{status.textContent='下書きの画像を表示できません。通信を確認して一覧を読み直してください。';};img.onload=resize;img.src=url;

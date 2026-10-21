@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>dora の絵の一覧</title>
+<style>
+:root{color-scheme:light;--ink:#332222;--paper:#eeeeee;--line:#cbc6be}
+*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font-family:system-ui,-apple-system,"Yu Gothic",sans-serif;line-height:1.65}
+main{max-width:860px;margin:auto;padding:20px 14px 60px}h1{font-size:1.7rem;margin:0}h2{font-size:1.3rem}h3{font-size:1.1rem;margin:0 0 10px}p{margin:8px 0}
+button,input,textarea,select{font:inherit;color:inherit;max-width:100%;min-width:0}button,input,select{min-height:44px}button{cursor:pointer;border:1px solid var(--ink);border-radius:8px;padding:8px 12px;background:#fff3b0;touch-action:manipulation}
+button:disabled{opacity:.55;cursor:wait}button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:3px solid #32488a;outline-offset:2px}
+input,textarea,select{width:100%;background:#eeeeee;border:1px solid #6a7a8c;border-radius:6px;padding:8px;font-size:16px}textarea{min-height:90px;resize:vertical}input[type=file]{padding:8px 0;border:0}label{display:block;margin-top:10px}fieldset{border:0;padding:0;margin:0;min-width:0}
+.toolbar,.statuses,.versions{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}.card,.setup,.add-box{border:1px solid var(--line);border-radius:12px;background:#eeeeee;padding:14px;margin:12px 0;min-width:0;overflow-wrap:anywhere}
+.card{border-left:7px solid var(--status,#959595)}.card.waiting h3,.card.waiting .spec{opacity:.72}.waiting{background:#cbc6be}.wait-tag{display:inline-block;padding:4px 9px;background:#fff3b0;border:1px solid #bd8145;border-radius:6px}
+.status-label{font-weight:bold;padding:3px 8px;border-radius:5px;background:var(--status);color:var(--status-ink)}.statuses button{background:#eeeeee}.statuses button[aria-pressed=true]{background:var(--status);color:var(--status-ink);border:2px solid var(--ink);font-weight:bold}
+.spec{white-space:pre-wrap}.muted{color:#534750;font-size:.9rem}#notice{position:sticky;top:0;z-index:2;padding:10px;background:#fff3b0;border:1px solid #bd8145;border-radius:8px;overflow-wrap:anywhere}#notice:empty{display:none}#notice.error{background:#ec8788}
+.image-scroll{overflow:auto;max-width:100%;background:repeating-conic-gradient(#cbc6be 0% 25%,#eeeeee 0% 50%) 0/16px 16px;border:1px solid #959595;margin:6px 0 12px}
+.image-scroll img{display:block;image-rendering:pixelated;max-width:none}.versions button{width:96px;background:#eeeeee;font-size:.75rem;overflow-wrap:anywhere}.versions button[aria-pressed=true]{outline:2px solid #32488a}.versions img{display:block;max-width:64px;max-height:64px;width:auto;height:auto;margin:auto;image-rendering:pixelated}
+[hidden]{display:none!important}
+</style>
+</head>
+<body><main>
+<h1>dora の絵の一覧</h1><p class="muted">描くもの、待っていること、描いた絵をふたりで確認。</p>
+<div id="notice" role="status" aria-live="polite"></div>
+<div class="toolbar"><button id="reload">一覧を読み直す</button><button id="add-toggle">行を足す</button><button id="forget">合言葉を忘れる</button><button id="settings-toggle">接続先の設定</button></div>
+<form id="settings" class="setup" hidden><label>ウェブアプリの URL<input id="api" type="url" required autocomplete="off" placeholder="Apps Script の /exec で終わる URL"></label><button type="submit">この端末に覚えて開く</button><p class="muted">接続先と合言葉は、このブラウザの localStorage に保存します。</p></form>
+<form id="add-form" class="add-box" hidden><h2>行を足す</h2>
+<label>絵<input name="art" required maxlength="10000"></label>
+<label>大きさ・枚数<input name="size" maxlength="10000"></label>
+<label>使う場所<input name="where" maxlength="10000"></label>
+<label>決まってから描くもの<input name="wait" maxlength="10000"></label>
+<label>メモ<textarea name="memo" maxlength="10000"></textarea></label>
+<label>優先<select name="priority"><option>今すぐ</option><option selected>次</option><option>あとで</option></select></label>
+<div class="toolbar"><button type="submit">この内容で足す</button><button type="button" id="add-cancel">閉じる</button></div></form>
+<div id="rows"></div>
+</main>
+<script id="dora-art-core">
+'use strict';
+const DoraArt = (() => {
+  const priorities = ['今すぐ','次','あとで'];
+  const statuses = ['まだ','描いてる','確認待ち','できた','確かめる'];
+  const colors = {'まだ':['#959595','#332222'],'描いてる':['#4f8fc0','#1c2a4a'],'確認待ち':['#ffe420','#332222'],'できた':['#21774f','#eeeeee'],'確かめる':['#9c374e','#eeeeee']};
+  function groups(rows) {
+    return priorities.map(priority => ({priority,rows:rows.filter(r=>r['優先']===priority).slice().sort((a,b)=>Number(a['番号'])-Number(b['番号']))}));
+  }
+  function waiting(row) { return String(row['決まってから描くもの'] || '').trim(); }
+  // 原寸が画面より広ければ1倍のまま、表示枠の中だけスクロールする。
+  function scale(width, available) {
+    if (!Number.isFinite(width) || width <= 0 || !Number.isFinite(available) || available <= 0) return 1;
+    return Math.max(1, Math.floor(available / width));
+  }
+  function fileLabel(file) { return String(file.name || '名前なし') + '（' + Math.ceil(Number(file.size || 0)/1024) + ' KB）'; }
+  function newest(files) { return files.slice().sort((a,b)=>String(b.date).localeCompare(String(a.date)) || String(b.name).localeCompare(String(a.name))); }
+  function apiUrl(value) {
+    const u = new URL(String(value).trim());
+    if(u.protocol!=='https:' || u.hostname!=='script.google.com' || u.port || u.username || u.password || !/^\/macros\/s\/[A-Za-z0-9_-]+\/exec$/.test(u.pathname))
+      throw new Error('Apps Script の /exec で終わるウェブアプリ URL を入れてください。');
+    return u.origin+u.pathname;
+  }
+  return {priorities,statuses,colors,groups,waiting,scale,fileLabel,newest,apiUrl};
+})();
+if(typeof module!=='undefined') module.exports=DoraArt;
+</script>
+<script>
+'use strict';
+(() => {
+  const C=DoraArt, $=id=>document.getElementById(id), API_KEY='dora_art.api', PASS_KEY='dora_art.passphrase';
+  let api='', passphrase='', busy=false, rows=[], storageWarning='';
+  const drafts=new Map();
+  function stored(key) { try{return localStorage.getItem(key)||'';}catch(_){storageWarning='端末に保存できません。この画面を閉じると設定を忘れます。';return '';} }
+  function remember(key,value) { try{if(value)localStorage.setItem(key,value);else localStorage.removeItem(key);}catch(_){storageWarning='端末に保存できません。この画面を閉じると設定を忘れます。';} }
+  function notice(message,error=false) { $('notice').textContent=message+(storageWarning?' '+storageWarning:'');$('notice').classList.toggle('error',error); }
+  function controls(disabled) { document.querySelectorAll('button,input,textarea,select').forEach(el=>el.disabled=disabled);document.querySelector('main').setAttribute('aria-busy',String(disabled)); }
+  async function run(label,work) {
+    if(busy)return;
+    busy=true;controls(true);notice(label+'…');
+    try{await work();notice(label+'が終わりました。');}
+    catch(e){notice(label+'に失敗しました。'+e.message,true);}
+    finally{busy=false;controls(false);}
+  }
+  async function request(action,params={},post=false) {
+    if(!api)throw new Error('接続先の URL を設定してください。');
+    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),90000);
+    try {
+      const url=new URL(api),options={redirect:'follow',signal:controller.signal,credentials:'omit'};
+      if(post){options.method='POST';options.headers={'Content-Type':'text/plain;charset=UTF-8'};options.body=JSON.stringify({...params,action,passphrase});}
+      else{url.search=new URLSearchParams({...params,action}).toString();options.cache='no-store';}
+      const response=await fetch(url,options);
+      if(!response.ok)throw new Error('HTTP '+response.status+'。公開設定を確認してください。');
+      let result;try{result=await response.json();}catch(_){throw new Error('JSON の返事がありません。URL と公開設定「全員」を確認してください。');}
+      if(!result || result.ok!==true){const e=new Error(result?.error||'正しい返事がありません。');e.code=result?.code;throw e;}
+      return result;
+    }catch(e){
+      if(e.name==='AbortError' || e instanceof TypeError)throw new Error('通信できませんでした。接続と公開設定を確認してください。'+(post?' 保存済みの可能性があるため、一覧と絵を読み直してから再操作してください。':''));
+      throw e;
+    }finally{clearTimeout(timer);}
+  }
+  async function write(action,params) {
+    for(;;){
+      if(!passphrase){const entered=window.prompt('書き込むための合言葉を入力してください。');if(entered===null || !entered.length)throw new Error('合言葉の入力を取り消しました。');passphrase=entered;}
+      try{const result=await request(action,params,true);remember(PASS_KEY,passphrase);return result;}
+      catch(e){if(e.code!=='AUTH')throw e;passphrase='';remember(PASS_KEY,'');notice('合言葉が違います。もう一度入力してください。',true);}
+    }
+  }
+  function node(tag,text,className) { const el=document.createElement(tag);if(text!==undefined)el.textContent=text;if(className)el.className=className;return el; }
+  function button(text,action) {const el=node('button',text);el.type='button';el.disabled=busy;el.addEventListener('click',action);return el;}
+  function setStatus(card,row) {
+    const [color,ink]=C.colors[row['状態']]||C.colors['まだ'];card.style.setProperty('--status',color);card.style.setProperty('--status-ink',ink);
+    card.querySelector('.status-label').textContent=row['状態'];card.querySelectorAll('.statuses button').forEach(b=>b.setAttribute('aria-pressed',String(b.textContent===row['状態'])));
+  }
+  function readFile(file) {return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result).split(',')[1]);reader.onerror=()=>reject(new Error('選んだ PNG を読み込めません。'));reader.onabort=()=>reject(new Error('PNG の読み込みが中断されました。'));reader.readAsDataURL(file);});}
+  async function loadGallery(panel,number) {
+    if(panel.resizeObserver)panel.resizeObserver.disconnect();
+    panel.replaceChildren();
+    const files=C.newest((await request('files',{number})).files);
+    if(!files.length){panel.append(node('p','描いた絵はまだありません。'));return;}
+    const title=node('p'),date=node('p',undefined,'muted'),native=node('div',undefined,'image-scroll'),large=node('div',undefined,'image-scroll'),zoomLabel=node('p'),versions=node('div',undefined,'versions');
+    panel.append(title,date,node('p','等倍'),native,zoomLabel,large,node('p','前の版もタップして見られます。'),versions);
+    const cache=new Map();let currentImage=null;
+    async function imageData(file){if(!cache.has(file.id)){const result=await request('image',{id:file.id});cache.set(file.id,'data:image/png;base64,'+result.base64);}return cache.get(file.id);}
+    function resize(){if(!currentImage || !panel.isConnected)return;const factor=C.scale(currentImage.naturalWidth,Math.max(1,large.clientWidth-2));currentImage.style.width=(currentImage.naturalWidth*factor)+'px';currentImage.style.height=(currentImage.naturalHeight*factor)+'px';zoomLabel.textContent='拡大 '+factor+'倍'+(currentImage.naturalWidth>large.clientWidth?'（横にスクロール）':'');}
+    const observer=new ResizeObserver(()=>{if(!panel.isConnected){observer.disconnect();return;}resize();});observer.observe(large);panel.resizeObserver=observer;
+    async function select(file){
+      const src=await imageData(file),img=new Image();img.alt=file.name;img.src=src;
+      try{await img.decode();}catch(_){throw new Error('PNG を画像として表示できません。書き出し直してください。');}
+      title.textContent=C.fileLabel(file);date.textContent='保存日：'+new Date(file.date).toLocaleString('ja-JP',{timeZone:'Asia/Tokyo'});
+      const original=img.cloneNode();original.width=img.naturalWidth;original.height=img.naturalHeight;native.replaceChildren(original);large.replaceChildren(img);currentImage=img;resize();
+      versions.querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.id===file.id)));
+    }
+    for(const file of files){const b=button(file.name,()=>run('絵の表示',()=>select(file)));b.dataset.id=file.id;versions.append(b);}
+    await select(files[0]);
+    // 行を開いた後だけ旧版も読む。巨大な同時通信を避けて順に処理する。
+    for(const [i,file] of files.entries()){
+      const img=new Image();img.alt='';img.src=await imageData(file);versions.children[i].prepend(img);
+    }
+  }
+  function render(){
+    const target=$('rows');target.querySelectorAll('.gallery').forEach(panel=>panel.resizeObserver?.disconnect());target.replaceChildren();
+    for(const group of C.groups(rows)){
+      const section=node('section');section.append(node('h2',group.priority+' · '+group.rows.length+'件'));target.append(section);
+      for(const row of group.rows){
+        const number=row['番号'],card=node('article',undefined,'card'),wait=C.waiting(row);card.dataset.number=number;card.classList.toggle('waiting',!!wait);
+        card.append(node('h3',String(number).padStart(2,'0')+'　'+row['絵']),node('span',row['状態'],'status-label'));
+        if(wait)card.append(node('p',wait+'が決まるまで待ち','wait-tag'));
+        card.append(node('p','大きさ・枚数：'+(row['大きさ・枚数']||'未定')+'\n使う場所：'+(row['使う場所']||'未定'),'spec'));
+        const statuses=node('div',undefined,'statuses');statuses.setAttribute('aria-label','状態を選ぶ');
+        for(const status of C.statuses)statuses.append(button(status,()=>run('番号 '+number+' の状態の保存',async()=>{await write('status',{number,status});row['状態']=status;setStatus(card,row);})));card.append(statuses);
+        const label=node('label','メモ'),memo=node('textarea');memo.maxLength=10000;memo.value=drafts.has(number)?drafts.get(number):row['メモ'];memo.disabled=busy;memo.addEventListener('input',()=>drafts.set(number,memo.value));label.append(memo);card.append(label);
+        card.append(button('メモを保存',()=>run('番号 '+number+' のメモの保存',async()=>{await write('memo',{number,memo:memo.value});row['メモ']=memo.value;drafts.delete(number);})));
+        const panel=node('div');panel.hidden=true;
+        const show=button('絵を開く',()=>run('番号 '+number+' の絵の読み込み',async()=>{if(!panel.hidden){panel.hidden=true;show.textContent='絵を開く';return;}panel.hidden=false;show.textContent='絵を閉じる';await loadGallery(panel,number);}));
+        const reread=button('絵を読み直す',()=>run('番号 '+number+' の絵の読み直し',async()=>{panel.hidden=false;show.textContent='絵を閉じる';await loadGallery(panel,number);}));
+        const actions=node('div',undefined,'toolbar');actions.append(show,reread);card.append(actions,panel);
+        const uploadLabel=node('label','描いた PNG を選ぶ（20MBまで）'),input=node('input');input.type='file';input.accept='image/png';input.disabled=busy;uploadLabel.append(input);card.append(uploadLabel);
+        card.append(button('選んだ PNG を送る',()=>run('番号 '+number+' のアップロード',async()=>{
+          const file=input.files[0];if(!file)throw new Error('PNG を選んでください。');if(file.size>20*1024*1024)throw new Error('PNG は20MB以下にしてください。');
+          const base64=await readFile(file);await write('upload',{number,base64});input.value='';
+          // 送信済みと再読込失敗を区別し、誤って同じ絵を送り直さないようにする。
+          try{await loadRows();const updated=[...$('rows').querySelectorAll('.card')].find(el=>Number(el.dataset.number)===Number(number));const gallery=updated.querySelector('.gallery');gallery.hidden=false;updated.querySelector('.toolbar button').textContent='絵を閉じる';await loadGallery(gallery,number);}
+          catch(e){throw new Error('絵の保存は完了しましたが、再読み込みに失敗しました。再送せず「一覧を読み直す」「絵を読み直す」を押してください。'+e.message);}
+        })));
+        panel.className='gallery';setStatus(card,row);section.append(card);
+      }
+    }
+  }
+  async function loadRows(){const result=await request('rows');rows=result.rows;render();}
+  function connect(value){const next=C.apiUrl(value);if(next!==api){passphrase='';remember(PASS_KEY,'');drafts.clear();rows=[];$('rows').replaceChildren();}api=next;remember(API_KEY,api);$('api').value=api;$('settings').hidden=true;}
+  $('settings').addEventListener('submit',e=>{e.preventDefault();run('一覧の読み込み',async()=>{connect($('api').value);await loadRows();});});
+  $('reload').addEventListener('click',()=>run('一覧の読み込み',loadRows));
+  $('settings-toggle').addEventListener('click',()=>{$('settings').hidden=!$('settings').hidden;});
+  $('forget').addEventListener('click',()=>{passphrase='';remember(PASS_KEY,'');notice('この端末の合言葉を忘れました。');});
+  $('add-toggle').addEventListener('click',()=>{$('add-form').hidden=!$('add-form').hidden;});
+  $('add-cancel').addEventListener('click',()=>{$('add-form').hidden=true;});
+  $('add-form').addEventListener('submit',e=>{e.preventDefault();const values=Object.fromEntries(new FormData(e.target));run('行の追加',async()=>{
+    const result=await write('add',values);e.target.reset();e.target.hidden=true;
+    try{await loadRows();}catch(error){throw new Error('番号 '+result.number+' の追加は完了しましたが一覧を読めません。再追加せず読み直してください。'+error.message);}
+  });});
+  try{
+    api=stored(API_KEY);passphrase=stored(PASS_KEY);const url=new URL(location.href),incoming=url.searchParams.get('api');
+    if(incoming){connect(incoming);url.searchParams.delete('api');history.replaceState(null,'',url.pathname+url.search+url.hash);}
+    else if(api){api=C.apiUrl(api);$('api').value=api;}
+    if(api)run('一覧の読み込み',loadRows);else{$('settings').hidden=false;notice('はじめにウェブアプリの URL を入れてください。');}
+  }catch(e){api='';$('settings').hidden=false;notice('接続先を設定できません。'+e.message,true);}
+})();
+</script>
+</body></html>

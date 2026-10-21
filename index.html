@@ -33,7 +33,7 @@ h1{font-family:var(--display);font-weight:400;font-size:28px;margin:0;letter-spa
 <div class="wrap">
   <header style="display:grid;gap:4px">
     <h1>ちりちゃんの道具箱</h1>
-    <p class="lead">田舎町の工場ゲーム（仮）を作るための道具。どれもブラウザの中だけで動き、絵やデータはどこにも送りません。</p>
+    <p class="lead">田舎町の工場ゲーム（仮）を作るための道具。「dora の絵の一覧」のほかは、どれもブラウザの中だけで動き、絵やデータはどこにも送りません。「dora の絵の一覧」だけは、ebi の Google スプレッドシートと「描いた絵」フォルダに読み書きします。</p>
   </header>
   <nav class="tools" aria-label="道具の一覧">
     <a class="tool" href="anim_check.html">
@@ -56,6 +56,11 @@ h1{font-family:var(--display);font-weight:400;font-size:28px;margin:0;letter-spa
       <strong>部屋の下書き帳</strong>
       <span>家の床や家具を置いて、主人公と大きさを見比べ、歩いて通路を確かめる</span>
     </a>
+    <a class="tool" href="dora_art.html">
+      <canvas class="icon" data-icon="art" width="10" height="10" aria-hidden="true"></canvas>
+      <strong>dora の絵の一覧</strong>
+      <span>描いてほしい絵の一覧。状態とメモを付け、描いた PNG を送って拡大して確かめる（書き込みには合言葉）</span>
+    </a>
     <a class="tool" href="village_to_town_gaps.html">
       <canvas class="icon" data-icon="list" width="10" height="10" aria-hidden="true"></canvas>
       <strong>村から町への不足一覧</strong>
@@ -71,6 +76,7 @@ const ICONS = {
   anim: ["..........","..aaaa....",".abbbba...",".abcbcb...",".abbbba...","..aaaa..d.","..e..e.ddd","..e..e..d.","..........",".........."],
   tile: ["gggggwwwww","gggggwwwww","ggggwwwwww","gggwwwwwww","ggwwwwwwww","gwwwwwwwww","gwwwwwwwww","ggwwwwwwww","gggwwwwwww","ggggwwwwww"],
   list: ["bbbbbbbbbb","baabbbbbbb","bbbbbbbbbb","bddbaaaabb","bddbbbbbbb","bbbbbbbbbb","bddbaaaaab","bddbbbbbbb","bbbbbbbbbb","bbbbbbbbbb"],
+  art:  ["aaaaaaaaaa","abbbbbbbba","abbbbbddba","abbbbbddba","abbbbbbbba","abbbgbbbba","abbgggbwba","abgggggwwa","aggggggwwa","aaaaaaaaaa"],
   map:  ["gggggwwggg","gggggwwggg","gggggwwggg","rrrrrbbrrr","gggggwwggg","ggtggwwggg","gtttgwwggg","ggtggwwggg","gggggwwggg","gggggwwggg"],
 };
 const COLORS = { a:"#332222", b:"#fff3b0", c:"#332222", d:"#ffe420", e:"#32488a", g:"#69ad46", w:"#4f8fc0", r:"#bd8145", b2:"#a7865a", t:"#21774f" };

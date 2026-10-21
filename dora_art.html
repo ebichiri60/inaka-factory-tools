@@ -77,33 +77,38 @@ if(typeof module!=='undefined') module.exports=DoraArt;
     if(busy)return;
     busy=true;controls(true);notice(label+'…');
     try{await work();notice(label+'が終わりました。');}
-    catch(e){notice(label+'に失敗しました。'+e.message,true);}
+    catch(e){notice(e.code==='CANCEL'?'合言葉を入れると一覧を読めます':label+'に失敗しました。'+e.message,e.code!=='CANCEL');}
     finally{busy=false;controls(false);}
   }
-  async function request(action,params={},post=false) {
+  async function send(action,params={}) {
     if(!api)throw new Error('接続先の URL を設定してください。');
     const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),90000);
     try {
-      const url=new URL(api),options={redirect:'follow',signal:controller.signal,credentials:'omit'};
-      if(post){options.method='POST';options.headers={'Content-Type':'text/plain;charset=UTF-8'};options.body=JSON.stringify({...params,action,passphrase});}
-      else{url.search=new URLSearchParams({...params,action}).toString();options.cache='no-store';}
+      const url=new URL(api),options={redirect:'follow',signal:controller.signal,credentials:'omit',cache:'no-store',method:'POST',headers:{'Content-Type':'text/plain;charset=UTF-8'},body:JSON.stringify({...params,action,passphrase})};
       const response=await fetch(url,options);
       if(!response.ok)throw new Error('HTTP '+response.status+'。公開設定を確認してください。');
       let result;try{result=await response.json();}catch(_){throw new Error('JSON の返事がありません。URL と公開設定「全員」を確認してください。');}
       if(!result || result.ok!==true){const e=new Error(result?.error||'正しい返事がありません。');e.code=result?.code;throw e;}
       return result;
     }catch(e){
-      if(e.name==='AbortError' || e instanceof TypeError)throw new Error('通信できませんでした。接続と公開設定を確認してください。'+(post?' 保存済みの可能性があるため、一覧と絵を読み直してから再操作してください。':''));
+      if(e.name==='AbortError' || e instanceof TypeError)throw new Error('通信できませんでした。接続と公開設定を確認してください。'+(['status','memo','add','upload'].includes(action)?' 保存済みの可能性があるため、一覧と絵を読み直してから再操作してください。':''));
       throw e;
     }finally{clearTimeout(timer);}
   }
-  async function write(action,params) {
+  function forget() {
+    passphrase='';remember(PASS_KEY,'');rows=[];drafts.clear();
+    $('rows').querySelectorAll('.gallery').forEach(panel=>panel.resizeObserver?.disconnect());
+    $('rows').replaceChildren();$('add-form').reset();$('add-form').hidden=true;
+  }
+  async function request(action,params={}) {
+    if(!api)throw new Error('接続先の URL を設定してください。');
     for(;;){
-      if(!passphrase){const entered=window.prompt('書き込むための合言葉を入力してください。');if(entered===null || !entered.length)throw new Error('合言葉の入力を取り消しました。');passphrase=entered;}
-      try{const result=await request(action,params,true);remember(PASS_KEY,passphrase);return result;}
+      if(!passphrase){const entered=window.prompt('合言葉を入力してください。');if(entered===null || !entered.length){forget();const e=new Error('合言葉の入力を取り消しました。');e.code='CANCEL';throw e;}passphrase=entered;}
+      try{const result=await send(action,params);remember(PASS_KEY,passphrase);return result;}
       catch(e){if(e.code!=='AUTH')throw e;passphrase='';remember(PASS_KEY,'');notice('合言葉が違います。もう一度入力してください。',true);}
     }
   }
+  async function write(action,params) { return request(action,params); }
   function node(tag,text,className) { const el=document.createElement(tag);if(text!==undefined)el.textContent=text;if(className)el.className=className;return el; }
   function button(text,action) {const el=node('button',text);el.type='button';el.disabled=busy;el.addEventListener('click',action);return el;}
   function setStatus(card,row) {
@@ -170,7 +175,7 @@ if(typeof module!=='undefined') module.exports=DoraArt;
   $('settings').addEventListener('submit',e=>{e.preventDefault();run('一覧の読み込み',async()=>{connect($('api').value);await loadRows();});});
   $('reload').addEventListener('click',()=>run('一覧の読み込み',loadRows));
   $('settings-toggle').addEventListener('click',()=>{$('settings').hidden=!$('settings').hidden;});
-  $('forget').addEventListener('click',()=>{passphrase='';remember(PASS_KEY,'');notice('この端末の合言葉を忘れました。');});
+  $('forget').addEventListener('click',()=>{forget();notice('この端末の合言葉を忘れました。合言葉を入れると一覧を読めます');});
   $('add-toggle').addEventListener('click',()=>{$('add-form').hidden=!$('add-form').hidden;});
   $('add-cancel').addEventListener('click',()=>{$('add-form').hidden=true;});
   $('add-form').addEventListener('submit',e=>{e.preventDefault();const values=Object.fromEntries(new FormData(e.target));run('行の追加',async()=>{

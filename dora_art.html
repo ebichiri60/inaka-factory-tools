@@ -19,6 +19,7 @@ input,textarea,select{width:100%;background:#eeeeee;border:1px solid #6a7a8c;bor
 .image-scroll{overflow:auto;max-width:100%;background:repeating-conic-gradient(#cbc6be 0% 25%,#eeeeee 0% 50%) 0/16px 16px;border:1px solid #959595;margin:6px 0 12px}
 .image-scroll img{display:block;image-rendering:pixelated;max-width:none}.versions button{width:96px;background:#eeeeee;font-size:.75rem;overflow-wrap:anywhere}.versions button[aria-pressed=true]{outline:2px solid #32488a}.versions img{display:block;max-width:64px;max-height:64px;width:auto;height:auto;margin:auto;image-rendering:pixelated}
 [hidden]{display:none!important}
+.draft-preview{padding:0;border:0;border-radius:0;display:block;min-height:0;background:transparent;max-width:none}.draft-preview img{display:block;image-rendering:pixelated;max-width:none}.draft-links{display:flex;gap:16px;flex-wrap:wrap}
 </style>
 </head>
 <body><main>
@@ -59,7 +60,26 @@ const DoraArt = (() => {
       throw new Error('Apps Script の /exec で終わるウェブアプリ URL を入れてください。');
     return u.origin+u.pathname;
   }
-  return {priorities,statuses,colors,groups,waiting,scale,fileLabel,newest,apiUrl};
+  function draftState(row, entries, error='') {
+    const wait=waiting(row);
+    if(wait)return {message:wait+'が決まってから下書きを作ります',entry:null};
+    if(error)return {message:error,entry:null};
+    const entry=entries.find(e=>e.number===Number(row['番号']));
+    return {message:entry?'':'下書きはまだありません。',entry:entry||null};
+  }
+  function draftManifest(value) {
+    if(!Array.isArray(value))throw new Error('下書きの一覧が不正です。');
+    const seen=new Set();
+    for(const e of value){
+      if(!e || !Number.isSafeInteger(e.number) || e.number<1 || seen.has(e.number) ||
+        typeof e.file!=='string' || !/^\d{2,}_[a-z0-9_]+\.png$/.test(e.file) ||
+        !Array.isArray(e.size) || e.size.length!==2 || !e.size.every(n=>Number.isSafeInteger(n)&&n>0&&n<=4096) ||
+        !Number.isSafeInteger(e.frames) || e.frames<1 || typeof e.description!=='string')throw new Error('下書きの一覧が不正です。');
+      seen.add(e.number);
+    }
+    return value;
+  }
+  return {priorities,statuses,colors,groups,waiting,scale,fileLabel,newest,apiUrl,draftState,draftManifest};
 })();
 if(typeof module!=='undefined') module.exports=DoraArt;
 </script>
@@ -69,6 +89,69 @@ if(typeof module!=='undefined') module.exports=DoraArt;
   const C=DoraArt, $=id=>document.getElementById(id), API_KEY='dora_art.api', PASS_KEY='dora_art.passphrase';
   let api='', passphrase='', busy=false, rows=[], storageWarning='';
   const drafts=new Map();
+  let draftEntries=[],draftError='下書きを読み込み中です。';
+  const draftFiles=new Map();
+  async function loadDrafts(){
+    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),15000);
+    try{
+      const response=await fetch('dora_drafts/manifest.json',{credentials:'omit',cache:'no-store',signal:controller.signal});
+      if(!response.ok)throw new Error();
+      draftEntries=C.draftManifest(await response.json());draftError='';
+    }catch(_){draftEntries=[];draftError='下書きを読み込めません。一覧はそのまま使えます。';}
+    finally{clearTimeout(timer);}
+    // 一覧を描き直すと編集中の操作を失うので、下書きの欄だけ更新する。
+    $('rows').querySelectorAll('.draft-panel').forEach(panel=>renderDraft(panel,rows.find(r=>Number(r['番号'])===Number(panel.dataset.number))));
+  }
+  async function prepareDraft(entry){
+    if(!draftFiles.has(entry.file)){
+      const pending=(async()=>{
+        const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),15000);
+        try{
+          const response=await fetch('dora_drafts/'+entry.file,{credentials:'omit',signal:controller.signal});
+          if(!response.ok)throw new Error('PNGを読み込めません。');
+          const blob=await response.blob();
+          const signature=new Uint8Array(await blob.slice(0,8).arrayBuffer());
+          if(signature.join(',')!=='137,80,78,71,13,10,26,10')throw new Error('PNGではありません。');
+          return new File([blob],entry.file,{type:'image/png'});
+        }finally{clearTimeout(timer);}
+      })();
+      draftFiles.set(entry.file,pending);
+      pending.catch(()=>draftFiles.delete(entry.file));
+    }
+    return draftFiles.get(entry.file);
+  }
+  function renderDraft(panel,row){
+    panel.resizeObserver?.disconnect();panel.replaceChildren(node('p','下書き'));
+    if(!row)return;
+    const state=C.draftState(row,draftEntries,draftError);
+    if(!state.entry){panel.append(node('p',state.message,'muted'));return;}
+    const entry=state.entry,url='dora_drafts/'+entry.file,status=node('p','PNGを準備中です。','muted');
+    status.setAttribute('role','status');
+    const scroll=node('div',undefined,'image-scroll'),img=new Image();img.alt='下書き：'+row['絵'];
+    let file=null;
+    // 読み込みはタップ前に済ませ、iPhoneの共有に必要なユーザー操作を保つ。
+    const tap=button(' ',async()=>{
+      if(!file){status.textContent='PNGを読み込めません。下の保存・開くリンクをお試しください。';return;}
+      try{
+        if(navigator.canShare?.({files:[file]}) && navigator.share){
+          await navigator.share({files:[file]});status.textContent='共有画面に渡しました。';return;
+        }
+      }catch(e){
+        if(e.name==='AbortError'){status.textContent='共有を取り消しました。下のリンクからも保存できます。';return;}
+      }
+      try{save.click();status.textContent='保存を開始しました。保存されない場合は「原寸を開く」をお試しください。';}
+      catch(_){status.textContent='共有・保存できません。「原寸を開く」をお試しください。';}
+    });
+    tap.className='draft-preview';tap.setAttribute('aria-label','原寸の下書きを共有・保存');tap.replaceChildren(img);scroll.append(tap);
+    const links=node('div',undefined,'draft-links'),save=node('a','PNGを保存'),open=node('a','原寸を開く');
+    save.href=url;save.download=entry.file;open.href=url;open.target='_blank';open.rel='noopener';
+    open.addEventListener('click',e=>{e.preventDefault();try{if(!window.open(url,'_blank'))throw new Error();status.textContent='開いた画像を長押しして保存してください。';}catch(_){status.textContent='共有・保存・別タブ表示ができません。ブラウザの設定や通信を確認してください。';}});
+    links.append(save,open);panel.append(scroll,node('p',entry.description),node('p',entry.size.join('×')+'px・'+entry.frames+'枚。タップで原寸PNGを共有。','muted'),links,status);
+    function resize(){const factor=C.scale(entry.size[0],scroll.clientWidth-2);img.style.width=entry.size[0]*factor+'px';img.style.height=entry.size[1]*factor+'px';}
+    const observer=new ResizeObserver(resize);observer.observe(scroll);panel.resizeObserver=observer;
+    img.onerror=()=>{status.textContent='下書きの画像を表示できません。通信を確認して一覧を読み直してください。';};img.onload=resize;img.src=url;
+    prepareDraft(entry).then(result=>{file=result;status.textContent='タップで共有。共有できないときは下のリンクから保存できます。';}).catch(()=>{status.textContent='PNGを読み込めません。保存・開くリンクも使えなければ通信を確認してください。';});
+  }
   function stored(key) { try{return localStorage.getItem(key)||'';}catch(_){storageWarning='端末に保存できません。この画面を閉じると設定を忘れます。';return '';} }
   function remember(key,value) { try{if(value)localStorage.setItem(key,value);else localStorage.removeItem(key);}catch(_){storageWarning='端末に保存できません。この画面を閉じると設定を忘れます。';} }
   function notice(message,error=false) { $('notice').textContent=message+(storageWarning?' '+storageWarning:'');$('notice').classList.toggle('error',error); }
@@ -97,7 +180,7 @@ if(typeof module!=='undefined') module.exports=DoraArt;
   }
   function forget() {
     passphrase='';remember(PASS_KEY,'');rows=[];drafts.clear();
-    $('rows').querySelectorAll('.gallery').forEach(panel=>panel.resizeObserver?.disconnect());
+    $('rows').querySelectorAll('.gallery,.draft-panel').forEach(panel=>panel.resizeObserver?.disconnect());
     $('rows').replaceChildren();$('add-form').reset();$('add-form').hidden=true;
   }
   async function request(action,params={}) {
@@ -142,7 +225,7 @@ if(typeof module!=='undefined') module.exports=DoraArt;
     }
   }
   function render(){
-    const target=$('rows');target.querySelectorAll('.gallery').forEach(panel=>panel.resizeObserver?.disconnect());target.replaceChildren();
+    const target=$('rows');target.querySelectorAll('.gallery,.draft-panel').forEach(panel=>panel.resizeObserver?.disconnect());target.replaceChildren();
     for(const group of C.groups(rows)){
       const section=node('section');section.append(node('h2',group.priority+' · '+group.rows.length+'件'));target.append(section);
       for(const row of group.rows){
@@ -150,6 +233,7 @@ if(typeof module!=='undefined') module.exports=DoraArt;
         card.append(node('h3',String(number).padStart(2,'0')+'　'+row['絵']),node('span',row['状態'],'status-label'));
         if(wait)card.append(node('p',wait+'が決まるまで待ち','wait-tag'));
         card.append(node('p','大きさ・枚数：'+(row['大きさ・枚数']||'未定')+'\n使う場所：'+(row['使う場所']||'未定'),'spec'));
+        const draftPanel=node('div',undefined,'draft-panel');draftPanel.dataset.number=number;card.append(draftPanel);renderDraft(draftPanel,row);
         const statuses=node('div',undefined,'statuses');statuses.setAttribute('aria-label','状態を選ぶ');
         for(const status of C.statuses)statuses.append(button(status,()=>run('番号 '+number+' の状態の保存',async()=>{await write('status',{number,status});row['状態']=status;setStatus(card,row);})));card.append(statuses);
         const label=node('label','メモ'),memo=node('textarea');memo.maxLength=10000;memo.value=drafts.has(number)?drafts.get(number):row['メモ'];memo.disabled=busy;memo.addEventListener('input',()=>drafts.set(number,memo.value));label.append(memo);card.append(label);
@@ -173,7 +257,8 @@ if(typeof module!=='undefined') module.exports=DoraArt;
   async function loadRows(){const result=await request('rows');rows=result.rows;render();}
   function connect(value){const next=C.apiUrl(value);if(next!==api){passphrase='';remember(PASS_KEY,'');drafts.clear();rows=[];$('rows').replaceChildren();}api=next;remember(API_KEY,api);$('api').value=api;$('settings').hidden=true;}
   $('settings').addEventListener('submit',e=>{e.preventDefault();run('一覧の読み込み',async()=>{connect($('api').value);await loadRows();});});
-  $('reload').addEventListener('click',()=>run('一覧の読み込み',loadRows));
+  loadDrafts();
+  $('reload').addEventListener('click',()=>{loadDrafts();run('一覧の読み込み',loadRows);});
   $('settings-toggle').addEventListener('click',()=>{$('settings').hidden=!$('settings').hidden;});
   $('forget').addEventListener('click',()=>{forget();notice('この端末の合言葉を忘れました。合言葉を入れると一覧を読めます');});
   $('add-toggle').addEventListener('click',()=>{$('add-form').hidden=!$('add-form').hidden;});

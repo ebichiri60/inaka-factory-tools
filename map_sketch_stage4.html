@@ -94,7 +94,7 @@ textarea { resize: vertical; min-height: 64px; }
     <h1>マップ下書き帳</h1>
     <a class="sub" href="index.html" style="color:var(--accent)">← ツールの一覧</a>
     <span class="sub">ゲームのリポジトリの tools/map_sketch.html。土台の地図は tools/map_sketch_data.gd で今の地図に合わせる。</span>
-    <span class="sub">外のマップ 240×160マス。座標はゲームと同じ（左上が 1000, 1000）</span>
+    <span class="sub">地図ごとの座標と範囲は、選択中の地図に表示します。</span>
     <span class="sub" id="activeBoardLabel"></span>
   </header>
 
@@ -121,6 +121,17 @@ textarea { resize: vertical; min-height: 64px; }
       <button class="btn" id="tool-erase" data-tool="erase" aria-pressed="false">物・坂・印を消す</button>
       <button class="btn" id="tool-player" data-tool="player" aria-pressed="false">主人公を動かす</button>
       <button class="btn" id="tool-pan" data-tool="pan" aria-pressed="false">動かす</button>
+    </div>
+    <div class="group" aria-label="歩行と柵">
+      <span class="group-label">歩行（地面とは別）</span>
+      <button class="btn" data-tool="walk_yes">歩ける</button>
+      <button class="btn" data-tool="walk_no">歩けない</button>
+      <button class="btn" data-tool="walk_clear">指定なし</button>
+      <label><input type="checkbox" id="showWalk" checked>歩行指定を表示</label>
+      <span class="group-label">柵（歩行指定とは別）</span>
+      <button class="btn" data-tool="fence_h">柵 横</button><button class="btn" data-tool="fence_v">柵 縦</button>
+      <button class="btn" data-tool="rail_h">ガードレール 横</button><button class="btn" data-tool="rail_v">ガードレール 縦</button>
+      <button class="btn" data-tool="barrier_clear">柵・ガードレール消去</button>
     </div>
     <div class="group" aria-label="崖と坂">
       <span class="group-label">崖と坂</span>
@@ -173,6 +184,11 @@ textarea { resize: vertical; min-height: 64px; }
         <p class="status" id="boardSizeLabel"></p>
         <p class="help">開けない地図：village_grandma_trial（原点 4700,1000、ベッド 4710,1007）と estate_house_trial（原点 4800,1000、ベッド 4810,1007）。寸法がデータに無いので盤面を作っていません。段4の開始位置は祖母の家のマス 15,9 です。</p>
         <div id="limitList"></div>
+      <h3>枠を動かす・広げる</h3><p class="help">数値はゲーム座標（マス）。枠は検討用の表示で、地面と歩行指定は変わりません。</p>
+      <select id="frameSelect" aria-label="変更する枠"></select><div class="row"><label>X<input type="number" id="frameX" step="0.5"></label><label>Y<input type="number" id="frameY" step="0.5"></label><label>幅<input type="number" id="frameW" step="0.5"></label><label>高さ<input type="number" id="frameH" step="0.5"></label></div><button class="btn" id="frameApply">枠を変更</button><button class="btn" id="frameCancel">入力を戻す</button>
+      <h3>編集範囲を広げる</h3><p class="help">地図の座標を変えず、外側に草地を足します。各方向0〜128マス、全体は最大512×512マス。検討用です。</p>
+      <div class="row"><label>左<input type="number" id="growLeft" min="0" max="128" value="0"></label><label>上<input type="number" id="growTop" min="0" max="128" value="0"></label><label>右<input type="number" id="growRight" min="0" max="128" value="0"></label><label>下<input type="number" id="growBottom" min="0" max="128" value="0"></label><button class="btn" id="growBoard">範囲を広げる</button></div>
+      <p class="help">歩行指定：緑＝歩ける、赤＝歩けない、無色＝指定なし。柵・ガードレールは歩行指定を変えません。</p>
       </section>
       <section>
         <h2>この下書き</h2>
@@ -319,6 +335,9 @@ const LOOKS = {
 };
 
 // ---------- 下書きの状態 ----------
+// Absolute tile coordinates keep the planning layers independent of board dimensions.
+let walkEdits = new Map(), barrierEdits = new Map(), frameEdits = new Map();
+const cellKey = (x, y) => `${x},${y}`;
 let tileEdits = new Map();   // idx -> kind index
 let treeEdits = new Map();   // idx -> true(置く) / false(消す)
 let tuftEdits = new Map();   // idx -> true(置く) / false(消す)  抜ける草（摘める草むら）
@@ -664,6 +683,7 @@ function applyBuilt(built, spec) {
   boardExtras = built.extras; boardLimits = built.limits; boardPlayer = built.player;
 }
 function resetEdits() {
+  walkEdits = new Map(); barrierEdits = new Map(); frameEdits = new Map();
   tileEdits = new Map(); treeEdits = new Map(); tuftEdits = new Map();
   wallEdits = new Set(); sideEdits = new Set(); backEdits = new Set();
   markers = []; objects = []; slopes = []; undoStack = [];
@@ -681,37 +701,84 @@ function applyBoard(spec, opts = {}) {
   } else if (spec.empty) applyBuilt(blankBoard(spec), spec);
   else applyBuilt(spec.build(), spec);
   resetEdits();
+  if (spec && spec.expanded) expandBoardRaw(spec.ox, spec.oy, spec.w, spec.h);
   refreshBoardChrome();
+  refreshFrameUi();
   if (opts.fit) fitView();
   else requestDraw();
 }
 function planBoard(d) {
   let note = "";
+  if (d && d.board != null && (typeof d.board !== "object" || Array.isArray(d.board) || typeof d.board.id !== "string" || !d.board.id)) throw new TypeError("盤面データが不正です");
   if (d && d.board && d.board.id) {
     const known = boardById(d.board.id);
     if (known) {
       const keys = ["w", "h", "ox", "oy"];
       if (keys.some((k) => d.board[k] !== undefined && +d.board[k] !== known[k])) {
-        note = `保存にあった寸法 ${d.board.w}×${d.board.h}・原点 ${d.board.ox},${d.board.oy} は、${known.id} の定義 ${known.w}×${known.h}・原点 ${known.ox},${known.oy} と違います。定義の盤面で開きました。`;
+        if (!d.board.expanded) { note = `保存にあった寸法 ${d.board.w}×${d.board.h}・原点 ${d.board.ox},${d.board.oy} は、${known.id} の定義 ${known.w}×${known.h}・原点 ${known.ox},${known.oy} と違います。定義の盤面で開きました。`; return {spec:known,note}; }
+        const w=Number(d.board.w), h=Number(d.board.h), ox=Number(d.board.ox), oy=Number(d.board.oy);
+        if (![w,h,ox,oy].every(Number.isSafeInteger) || w<known.w || h<known.h || w>512 || h>512 || ox>known.ox || oy>known.oy || ox+w<known.ox+known.w || oy+h<known.oy+known.h) throw new TypeError("保存の範囲が不正です");
+        return { spec: {...known,w,h,ox,oy,expanded:true}, note: "検討用に広げた範囲を復元しました。" };
       }
       return { spec: known, note };
     }
     const bw = +d.board.w, bh = +d.board.h;
-    if (bw > 0 && bh > 0) {
+    if (Number.isInteger(bw) && Number.isInteger(bh) && bw > 0 && bh > 0 && bw <= 512 && bh <= 512 && Number.isInteger(+d.board.ox) && Number.isInteger(+d.board.oy)) {
       note = `「${d.board.id}」の地形定義がこの下書き帳に無いので、${bw}×${bh}・原点 ${+d.board.ox || 0},${+d.board.oy || 0} の空の草地図として開きました。`;
       return { spec: { id: String(d.board.id), title: d.board.name || String(d.board.id), role: d.board.role || "custom", w: bw, h: bh, ox: +d.board.ox || 0, oy: +d.board.oy || 0, empty: true }, note };
     }
-    note = `「${d.board.id}」は開けません。今の外のマップで開きました。`;
+    throw new TypeError("盤面の大きさが不正です");
   }
   return { spec: boardById("legacy"), note };
 }
 function persistBoardDraft() {
   try {
-    const empty = !tileEdits.size && !treeEdits.size && !tuftEdits.size && !markers.length && !wallEdits.size && !sideEdits.size && !backEdits.size && !objects.length && !slopes.length;
+    const empty = !frameEdits.size && !walkEdits.size && !barrierEdits.size && W === BASE.w && H === BASE.h && OX === BASE.ox && OY === BASE.oy && !tileEdits.size && !treeEdits.size && !tuftEdits.size && !markers.length && !wallEdits.size && !sideEdits.size && !backEdits.size && !objects.length && !slopes.length;
     if (boardId === "legacy" && empty) localStorage.removeItem(DRAFT_KEY);
     else localStorage.setItem(DRAFT_KEY, JSON.stringify({ id: sketchId, ...serialize() }));
   } catch (e) {}
 }
+// Remap width-dependent arrays using absolute coordinates, without moving world coordinates.
+function expandBoardRaw(newOx,newOy,newW,newH) {
+  const oldW=W, oldH=H, dx=OX-newOx, dy=OY-newOy;
+  const remapIndex=i=>((Math.floor(i/oldW)+dy)*newW)+(i%oldW)+dx;
+  const remapMap=map=>new Map([...map].map(([i,v])=>[remapIndex(i),v]));
+  const remapSet=set=>new Set([...set].map(remapIndex));
+  function remapArray(a,fill) { if (!a) return null; const b=new Uint8Array(newW*newH); if(fill) b.fill(fill); for(let y=0;y<oldH;y++) b.set(a.subarray(y*oldW,(y+1)*oldW),(y+dy)*newW+dx); return b; }
+  baseKinds=remapArray(baseKinds,KIND_INDEX.g); baseLook=remapArray(baseLook,0); baseSolid=remapArray(baseSolid,0);
+  baseTrees=remapSet(baseTrees); baseRocks=remapSet(baseRocks); baseTufts=remapSet(baseTufts);
+  tileEdits=remapMap(tileEdits); treeEdits=remapMap(treeEdits); tuftEdits=remapMap(tuftEdits); wallEdits=remapSet(wallEdits);
+  sideEdits=new Set([...sideEdits].map(i=>(Math.floor(i/(oldW+1))+dy)*(newW+1)+(i%(oldW+1))+dx));
+  backEdits=new Set([...backEdits].map(i=>(Math.floor(i/oldW)+dy)*newW+(i%oldW)+dx));
+  boardExtras=boardExtras.map(e=>e.kind === "line" ? {...e,points:e.points.map(([x,y])=>[x+dx,y+dy])} : {...e,x:e.x+dx,y:e.y+dy});
+  OX=newOx; OY=newOy; W=newW; H=newH;
+}
+function growBoard(left,top,right,bottom) {
+  if (![left,top,right,bottom].every(n=>Number.isInteger(n)&&n>=0&&n<=128) || W+left+right>512 || H+top+bottom>512 || left+top+right+bottom===0) throw new TypeError("拡張は各方向0〜128マス、全体512×512までです。");
+  const prev=captureBoardState(); expandBoardRaw(OX-left,OY-top,W+left+right,H+top+bottom);
+  undoStack=[...prev.undoStack,{type:"board_snapshot",state:prev}]; refreshBoardChrome(); fitView(); markDirty(); updateSummary();
+}
+document.getElementById("growBoard").onclick=()=>{try { growBoard(...["growLeft","growTop","growRight","growBottom"].map(id=>Number(document.getElementById(id).value))); setStatus("範囲を広げました。", "ok"); } catch(e) { setStatus(e.message,"warn"); }};
+function frameDefinitions(id) {
+  if (id === "estate_trial") return ESTATE_REGIONS.filter(r=>["road","stone_bridge"].includes(r.kind)).map(r=>({id:r.id,label:r.id,x:ESTATE.ox+r.rect[0],y:ESTATE.oy+r.rect[1],w:r.rect[2],h:r.rect[3]}));
+  const m=SMALL_MAPS.find(m=>m.map_id===id); if(!m) return [];
+  const defs=[["floor","歩行可能な床",m.floor],["path","歩行帯",m.path],["road",m.road_label||"道",m.road],["north_road","北の道",m.north_road],...m.solids.map((r,i)=>["solid"+i,"障害",r])];
+  return defs.filter(([id,label,r])=>r&&r.length===4&&r[2]>0&&r[3]>0).map(([id,label,r])=>({id,label,sourceLabel:id==="path"?"歩行帯":id.startsWith("solid")?"障害":label,x:m.origin[0]+r[0]/16,y:m.origin[1]+r[1]/16,w:r[2]/16,h:r[3]/16}));
+}
+function refreshFrameUi() {
+  const el=document.getElementById("frameSelect"); if(!el) return; const keep=el.value; el.replaceChildren();
+  for(const f of frameDefinitions(boardId)) { const o=document.createElement("option"); o.value=f.id;o.textContent=f.label;el.appendChild(o); }
+  if(Array.from(el.options || []).some(o=>o.value===keep)) el.value=keep;
+  loadFrameInputs();
+}
+function loadFrameInputs() { const id=document.getElementById("frameSelect").value; const f=frameEdits.get(id)||frameDefinitions(boardId).find(f=>f.id===id); for(const [key,field] of [["x","frameX"],["y","frameY"],["w","frameW"],["h","frameH"]]) document.getElementById(field).value=f?f[key]:""; }
+document.getElementById("frameSelect").onchange=loadFrameInputs;
+document.getElementById("frameCancel").onclick=loadFrameInputs;
+document.getElementById("frameApply").onclick=()=>{
+ const id=document.getElementById("frameSelect").value, nums=["frameX","frameY","frameW","frameH"].map(id=>Number(document.getElementById(id).value));
+ if(!frameDefinitions(boardId).some(f=>f.id===id) || !nums.every(Number.isFinite) || nums[2]<=0 || nums[3]<=0 || nums[0]<OX || nums[1]<OY || nums[0]+nums[2]>OX+W || nums[1]+nums[3]>OY+H) { setStatus("枠は編集範囲内に正の幅と高さで指定してください。","warn"); return; }
+ undoStack.push({type:"frames",prev:new Map(frameEdits)}); frameEdits=new Map(frameEdits); frameEdits.set(id,{x:nums[0],y:nums[1],w:nums[2],h:nums[3]}); markDirty();updateSummary();requestDraw();setStatus("枠を変更しました。","ok");
+};
 function openConsideration(id) {
   const spec = boardById(id) || boardById("legacy");
   sketchId = null;
@@ -813,6 +880,7 @@ function drawBoardExtras(g, sx, sy, s) {
   g.save();
   g.font = `600 ${Math.max(10, Math.min(14, s * 1.1))}px sans-serif`;
   for (const ex of boardExtras) {
+    if (ex.kind !== "line" && frameDefinitions(boardId).some(f=>f.sourceLabel===ex.label)) continue;
     if (ex.kind === "line") {
       if (!ex.points || ex.points.length < 2) continue;
       g.beginPath();
@@ -828,6 +896,20 @@ function drawBoardExtras(g, sx, sy, s) {
     if (ex.label && s >= 4) paintLabel(g, ex.label, sx(ex.x), sy(ex.y) - 4, ex.color || "#ffffff");
   }
   g.restore();
+}
+
+function drawPlanning(g, sx, sy, s) {
+  if (document.getElementById("showWalk").checked) for (const [key, value] of walkEdits) {
+    const [x,y] = key.split(",").map(Number); g.fillStyle = value === "yes" ? "rgba(0,160,113,.48)" : "rgba(240,0,96,.48)";
+    g.fillRect(sx(x-OX), sy(y-OY), s, s);
+  }
+  for (const [key, value] of barrierEdits) {
+    const [x,y] = key.split(",").map(Number), X = sx(x-OX), Y = sy(y-OY);
+    g.strokeStyle = value.startsWith("rail") ? "#a9b6c2" : "#5e4430"; g.lineWidth = Math.max(2,s*.16); g.beginPath();
+    if (value.endsWith("_h")) { g.moveTo(X,Y+s*.5); g.lineTo(X+s,Y+s*.5); }
+    else { g.moveTo(X+s*.5,Y); g.lineTo(X+s*.5,Y+s); } g.stroke();
+  }
+  for (const f of frameDefinitions(boardId)) { const r=frameEdits.get(f.id)||f; g.strokeStyle="#f00060"; g.lineWidth=2; g.strokeRect(sx(r.x-OX),sy(r.y-OY),r.w*s,r.h*s); }
 }
 
 function draw() {
@@ -905,6 +987,7 @@ function draw() {
   ctx.fillStyle = "#332222"; ctx.fillRect(sx(spx - OX) + s * .2, sy(spy - OY) + s * .2, s * .6, s * .6);
   if (s >= 5) label("スタート", sx(spx - OX), sy(spy - OY + 1) + 14, "#ffffff");
   drawBoardExtras(ctx, sx, sy, s);
+  drawPlanning(ctx, sx, sy, s);
   // 印
   for (const m of markers) drawMarker(m, sx, sy, s, false);
   if (dragRect) {
@@ -1122,9 +1205,9 @@ function tileFromEvent(e) {
 function brushSize() { return parseInt(document.getElementById("brush").value, 10); }
 function inMap(x, y) { return x >= 0 && y >= 0 && x < W && y < H; }
 
-function beginStroke() { stroke = { tiles: new Map(), trees: new Map(), walls: new Map(), sides: new Map(), backs: new Map(), tufts: new Map() }; }
+function beginStroke() { stroke = { walk: new Map(), barriers: new Map(), tiles: new Map(), trees: new Map(), walls: new Map(), sides: new Map(), backs: new Map(), tufts: new Map() }; }
 function endStroke() {
-  if (stroke && (stroke.tiles.size || stroke.trees.size || stroke.walls.size || stroke.sides.size || stroke.backs.size || stroke.tufts.size)) { undoStack.push({ type: "stroke", ...stroke }); markDirty(); }
+  if (stroke && (stroke.walk.size || stroke.barriers.size || stroke.tiles.size || stroke.trees.size || stroke.walls.size || stroke.sides.size || stroke.backs.size || stroke.tufts.size)) { undoStack.push({ type: "stroke", ...stroke }); markDirty(); }
   stroke = null;
 }
 function setTile(i, v) {
@@ -1148,6 +1231,7 @@ function setTuft(i, v) {
   if (!stroke.tufts.has(i)) stroke.tufts.set(i, prev);
   if (next === null) tuftEdits.delete(i); else tuftEdits.set(i, next);
 }
+function restorePlanning(changes, target) { if (changes) for (const [key, prev] of changes) { if (prev === null) target.delete(key); else target.set(key, prev); } }
 function restoreTufts(map) { for (const [i, prev] of map) { if (prev === null) tuftEdits.delete(i); else tuftEdits.set(i, prev); } }
 function setWall(i, v) {
   const prev = wallEdits.has(i);
@@ -1175,11 +1259,18 @@ function restoreWalls(map) { for (const [i, prev] of map) { if (prev) wallEdits.
 function applyBrush(cx, cy) {
   if (tool === "side") { setSide(sideLineX, cy, true); return; }
   if (tool === "back") { setBack(cx, backLineY, true); return; }
-  const b = brushSize(), off = Math.floor((b - 1) / 2);
+  const b = (tool.startsWith("fence_") || tool.startsWith("rail_") || tool === "barrier_clear") ? 1 : brushSize(), off = Math.floor((b - 1) / 2);
   for (let y = cy - off; y < cy - off + b; y++) for (let x = cx - off; x < cx - off + b; x++) {
     if (!inMap(x, y)) continue;
     const i = y * W + x;
-    if (tool === "paint") setTile(i, kind);
+    if (["walk_yes", "walk_no", "walk_clear", "fence_h", "fence_v", "rail_h", "rail_v", "barrier_clear"].includes(tool)) {
+      const walk = tool.startsWith("walk_"); const map = walk ? walkEdits : barrierEdits;
+      const changes = walk ? stroke.walk : stroke.barriers, key = cellKey(x + OX, y + OY);
+      const prev = map.has(key) ? map.get(key) : null;
+      const value = walk ? ({walk_yes:"yes", walk_no:"no", walk_clear:null})[tool] : ({fence_h:"fence_h", fence_v:"fence_v", rail_h:"rail_h", rail_v:"rail_v", barrier_clear:null})[tool];
+      if (prev !== value) { if (!changes.has(key)) changes.set(key, prev); if (value === null) map.delete(key); else map.set(key, value); }
+    }
+    else if (tool === "paint") setTile(i, kind);
     else if (tool === "tree") setTree(i, true);
     else if (tool === "untree") setTree(i, false);
     else if (tool === "tuft") setTuft(i, true);
@@ -1250,6 +1341,7 @@ function cancelStroke() {
   if (!stroke) return;
   for (const [i, prev] of stroke.tiles) { if (prev < 0) tileEdits.delete(i); else tileEdits.set(i, prev); }
   for (const [i, prev] of stroke.trees) { if (prev === null) treeEdits.delete(i); else treeEdits.set(i, prev); }
+  restorePlanning(stroke.walk, walkEdits); restorePlanning(stroke.barriers, barrierEdits);
   restoreWalls(stroke.walls); restoreSides(stroke.sides); restoreBacks(stroke.backs); restoreTufts(stroke.tufts);
   stroke = null; updateSummary(); requestDraw();
 }
@@ -1289,6 +1381,7 @@ cv.addEventListener("pointermove", (e) => {
 function endPointer(e) {
   pointers.delete(e.pointerId);
   if (!gesture) return;
+  if (e.type === "pointercancel") { if (gesture.timer) clearTimeout(gesture.timer); if (stroke) cancelStroke(); if (gesture.type === "player") player = gesture.prev; if (gesture.type === "objdown" && gesture.before) objects = gesture.before; dragRect = null; gesture = null; pointers.clear(); renderObjects(); requestDraw(); return; }
   if (gesture.type === "pinch") { if (pointers.size === 0) gesture = null; return; }
   if (gesture.type === "player") { markDirty(); gesture = null; requestDraw(); return; }
   if (gesture.type === "erase") {
@@ -1423,6 +1516,7 @@ for (const b of document.querySelectorAll("[data-tool]")) b.onclick = () => setT
 document.getElementById("brush").onchange = requestDraw;
 document.getElementById("showDiff").onchange = requestDraw;
 document.getElementById("showTrees").onchange = requestDraw;
+document.getElementById("showWalk").onchange = requestDraw;
 document.getElementById("showView").onchange = requestDraw;
 document.getElementById("camZoom").onchange = requestDraw;
 
@@ -1436,11 +1530,14 @@ function undo() {
   if (u.type === "stroke") {
     for (const [i, prev] of u.tiles) { if (prev < 0) tileEdits.delete(i); else tileEdits.set(i, prev); }
     for (const [i, prev] of u.trees) { if (prev === null) treeEdits.delete(i); else treeEdits.set(i, prev); }
+    restorePlanning(u.walk, walkEdits); restorePlanning(u.barriers, barrierEdits);
     if (u.walls) restoreWalls(u.walls);
     if (u.sides) restoreSides(u.sides);
     if (u.backs) restoreBacks(u.backs);
     if (u.tufts) restoreTufts(u.tufts);
-  } else if (u.type === "markers") { markers = u.prev; renderMarkers(); }
+  } else if (u.type === "board_snapshot") { restoreBoardState(u.state); }
+  else if (u.type === "frames") { frameEdits = u.prev; refreshFrameUi(); }
+  else if (u.type === "markers") { markers = u.prev; renderMarkers(); }
   else if (u.type === "objects") { objects = u.prev; selectedObj = null; renderObjects(); }
   else if (u.type === "slopes") { slopes = u.prev; selectedSlope = null; }
   markDirty(); updateSummary(); requestDraw();
@@ -1504,6 +1601,9 @@ function updateSummary() {
   if (slopes.length) parts.push(`坂 ${slopes.length}本`);
   if (objects.length) parts.push(`置いた物 ${objects.length}個`);
   if (markers.length) parts.push(`印 ${markers.length}個`);
+  if (walkEdits.size) parts.push(`歩行指定 ${walkEdits.size}マス`);
+  if (barrierEdits.size) parts.push(`柵・ガードレール ${barrierEdits.size}マス`);
+  if (frameEdits.size) parts.push(`変更した枠 ${frameEdits.size}個`);
   document.getElementById("summary").textContent = parts.length ? parts.join("、") : "まだ何も変えていません。";
 }
 
@@ -1534,7 +1634,11 @@ function serialize() {
     objects: objects.map(({ id, type, x, y, w, h }) => ({ id, type, name: (OBJ[type] || {}).name || type, x, y, w, h })),
     markers: markers.map(({ id, x, y, w, h, label, color }) => ({ id, x, y, w, h, label, color })),
   };
-  if (boardId !== "legacy") data.board = { id: boardId, name: boardTitle, role: boardRole, w: W, h: H, ox: OX, oy: OY, considerationOnly: true, sourceNote: CONSIDER_NOTE };
+  if (frameEdits.size) data.frames = [...frameEdits].map(([id,r])=>({id,...r}));
+  if (walkEdits.size) data.walk = [...walkEdits].map(([key,value]) => `${key},${value}`).join(";");
+  if (barrierEdits.size) data.barriers = [...barrierEdits].map(([key,value]) => `${key},${value}`).join(";");
+  if (boardId !== "legacy" || W !== BASE.w || H !== BASE.h || OX !== BASE.ox || OY !== BASE.oy) data.board = { id: boardId, name: boardTitle, role: boardRole, w: W, h: H, ox: OX, oy: OY, considerationOnly: true, sourceNote: CONSIDER_NOTE };
+  if (data.board) { const original=boardById(boardId); if (original && (W!==original.w || H!==original.h || OX!==original.ox || OY!==original.oy)) data.board.expanded=true; }
   return data;
 }
 function sketchText(value) {
@@ -1543,7 +1647,7 @@ function sketchText(value) {
   return value;
 }
 function boardMetrics(spec) {
-  if (!spec || spec.id === "legacy") return { w: BASE.w, h: BASE.h, ox: BASE.ox, oy: BASE.oy };
+  if (!spec || (spec.id === "legacy" && !spec.expanded)) return { w: BASE.w, h: BASE.h, ox: BASE.ox, oy: BASE.oy };
   return { w: spec.w, h: spec.h, ox: spec.ox, oy: spec.oy };
 }
 // x と y をそれぞれ盤面の中に収まるか確認してから、一次元の位置へ直す。
@@ -1565,7 +1669,7 @@ function captureBoardState() {
     baseKinds, baseTrees, baseRocks, baseTufts, baseLook, baseSolid,
     boardBridges, boardProjects, boardOutcrops, boardSpawn,
     boardExtras, boardLimits, boardPlayer, boardLoadNote,
-    tileEdits, treeEdits, tuftEdits, wallEdits, sideEdits, backEdits,
+    tileEdits, treeEdits, tuftEdits, wallEdits, sideEdits, backEdits, walkEdits, barrierEdits, frameEdits,
     markers, objects, slopes, selectedObj, selectedSlope, player, undoStack,
     name: document.getElementById("sketchName").value,
     note: document.getElementById("note").value,
@@ -1578,6 +1682,7 @@ function restoreBoardState(s) {
   baseLook = s.baseLook; baseSolid = s.baseSolid;
   boardBridges = s.boardBridges; boardProjects = s.boardProjects; boardOutcrops = s.boardOutcrops; boardSpawn = s.boardSpawn;
   boardExtras = s.boardExtras; boardLimits = s.boardLimits; boardPlayer = s.boardPlayer; boardLoadNote = s.boardLoadNote;
+  walkEdits = s.walkEdits; barrierEdits = s.barrierEdits; frameEdits = s.frameEdits;
   tileEdits = s.tileEdits; treeEdits = s.treeEdits; tuftEdits = s.tuftEdits;
   wallEdits = s.wallEdits; sideEdits = s.sideEdits; backEdits = s.backEdits;
   markers = s.markers; objects = s.objects; slopes = s.slopes;
@@ -1585,6 +1690,7 @@ function restoreBoardState(s) {
   document.getElementById("sketchName").value = s.name;
   document.getElementById("note").value = s.note;
   refreshBoardChrome();
+  refreshFrameUi();
   renderMarkers();
   renderObjects();
   updateSummary();
@@ -1599,6 +1705,8 @@ function parseSketch(d) {
   const sidesText = sketchText(d.sides);
   const backsText = sketchText(d.backs);
   const heightsText = sketchText(d.heights);
+  if (d.walk != null && typeof d.walk !== "string" || d.barriers != null && typeof d.barriers !== "string") throw new TypeError("検討レイヤーが不正です");
+  const walkText = sketchText(d.walk), barrierText = sketchText(d.barriers);
   const plan = planBoard(d);
   const { w, h, ox, oy } = boardMetrics(plan.spec);
   const idByKind = Object.fromEntries(KINDS.map((k, i) => [k.id, i]));
@@ -1648,6 +1756,18 @@ function parseSketch(d) {
       }
     }
   }
+  const frames = new Map();
+  if (d.frames !== undefined && !Array.isArray(d.frames)) throw new TypeError("枠データが不正です");
+  for (const f of d.frames || []) { if (!f || typeof f.id!=="string" || ![f.x,f.y,f.w,f.h].every(Number.isFinite) || f.w<=0 || f.h<=0 || f.x<ox || f.y<oy || f.x+f.w>ox+w || f.y+f.h>oy+h || !frameDefinitions(plan.spec.id).some(r=>r.id===f.id)) throw new TypeError("枠データが不正です"); frames.set(f.id,{x:f.x,y:f.y,w:f.w,h:f.h}); }
+  const walk = new Map(), barriers = new Map();
+  function parsePlanning(text, target, allowed) {
+    eachSketchPart(text, ([x,y,value]) => {
+      const xx=Number(x), yy=Number(y);
+      if (!Number.isInteger(xx) || !Number.isInteger(yy) || !allowed.includes(value) || cellIndexInBoard(xx,yy,ox,oy,w,h)<0) throw new TypeError("検討レイヤーが不正です");
+      target.set(cellKey(xx,yy),value);
+    });
+  }
+  parsePlanning(walkText,walk,["yes","no"]); parsePlanning(barrierText,barriers,["fence_h","fence_v","rail_h","rail_v"]);
   const markers = Array.isArray(d.markers) ? d.markers.map((m) => {
     if (!m || typeof m !== "object" || Array.isArray(m) || !Number.isFinite(m.x) || !Number.isFinite(m.y) || !Number.isFinite(m.w) || !Number.isFinite(m.h)) throw new TypeError("印データが不正です");
     return { ...m };
@@ -1655,11 +1775,13 @@ function parseSketch(d) {
   const nextObjects = Array.isArray(d.objects) ? d.objects.filter((o) => o && o.type).map(({ id, type, x, y, w: ow, h: oh }) => ({ id: id || "o" + Math.random().toString(36).slice(2, 8), type, x: +x, y: +y, w: +ow || 1, h: +oh || 1 })) : [];
   const nextSlopes = Array.isArray(d.slopes) ? d.slopes.filter((x) => x && (x.dir === "r" || x.dir === "l")).map((x) => ({ id: "sl" + Math.random().toString(36).slice(2, 8), dir: x.dir, x: +x.x, y: +x.y, len: Math.max(1, +x.len || 1), width: Math.max(1, +x.width || 1) })) : [];
   const nextPlayer = d.player && isFinite(d.player.x) && isFinite(d.player.y) ? { x: +d.player.x, y: +d.player.y } : null;
-  return { spec: plan.spec, note: plan.note, tiles, trees, tufts, walls, sides, backs, markers, objects: nextObjects, slopes: nextSlopes, player: nextPlayer, name: d.name || "", noteText: d.note || "" };
+  return { spec: plan.spec, note: plan.note, tiles, trees, tufts, walls, sides, backs, walk, barriers, frames, markers, objects: nextObjects, slopes: nextSlopes, player: nextPlayer, name: d.name || "", noteText: d.note || "" };
 }
 function commitSketch(parsed) {
   boardLoadNote = parsed.note;
   applyBoard(parsed.spec, { fit: false });
+  walkEdits = parsed.walk; barrierEdits = parsed.barriers; frameEdits = parsed.frames;
+  refreshFrameUi();
   tileEdits = parsed.tiles;
   treeEdits = parsed.trees;
   tuftEdits = parsed.tufts;
@@ -1748,7 +1870,7 @@ document.getElementById("newSketch").onclick = () => {
     renderMarkers(); renderObjects(); updateSummary();
     setStatus("");
   };
-  if (dirty && (tileEdits.size || treeEdits.size || tuftEdits.size || markers.length || wallEdits.size || sideEdits.size || backEdits.size || objects.length || slopes.length)) askConfirm("保存していない変更があります。消して新しく始めますか？", "消して始める", go); else go();
+  if (dirty) askConfirm("保存していない変更があります。消して新しく始めますか？", "消して始める", go); else go();
 };
 
 function renderSketchList(docs) {
@@ -1769,7 +1891,7 @@ function renderSketchList(docs) {
         sketchId = d.id; dirty = false;
         setStatus(`「${data.name || "名前なし"}」を開きました。${boardLoadNote ? " " + boardLoadNote : ""}`, boardLoadNote ? "warn" : "");
       };
-      if (dirty && d.id !== sketchId && (tileEdits.size || treeEdits.size || markers.length)) askConfirm("保存していない変更があります。開くと消えますが、よいですか？", "開く", go); else go();
+      if (dirty && d.id !== sketchId) askConfirm("保存していない変更があります。開くと消えますが、よいですか？", "開く", go); else go();
     };
     const del = document.createElement("button"); del.textContent = "消す";
     del.onclick = () => askConfirm(`下書き「${data.name || "名前なし"}」を消します。元に戻せません。`, "消す", async () => {
@@ -1798,6 +1920,7 @@ function renderPng() {
   const lab = (t, x, y, col) => { const m = g.measureText(t); g.fillStyle = "rgba(20,18,24,.8)"; g.fillRect(x - 3, y - 13, m.width + 6, 17); g.fillStyle = col; g.fillText(t, x, y); };
   for (const p of boardProjects) { g.strokeStyle = p.closed ? "#e08a68" : "#fff"; g.lineWidth = 2; g.setLineDash(p.closed ? [5, 4] : []); g.strokeRect((p.x - OX) * s, (p.y - OY) * s, p.w * s, p.h * s); g.setLineDash([]); lab(p.label, (p.x - OX) * s, (p.y - OY) * s - 4, p.closed ? "#e08a68" : "#fff"); }
   drawBoardExtras(g, (x) => x * s, (y) => y * s, s);
+  drawPlanning(g, (x) => x * s, (y) => y * s, s);
   drawSlopes(g, (x) => x * s, (y) => y * s, s, slopes, false);
   for (const o of objects) drawObject(g, o, (o.x - OX) * s, (o.y - OY) * s, s, false);
   for (const m of markers) { g.strokeStyle = m.color; g.lineWidth = 3; g.strokeRect((m.x - OX) * s, (m.y - OY) * s, m.w * s, m.h * s); lab(m.label, (m.x - OX) * s, (m.y - OY + m.h) * s + 16, m.color); }
@@ -1834,7 +1957,7 @@ document.getElementById("importFile").onchange = (e) => {
         sketchId = null; markDirty();
         setStatus(`「${d.name || "名前なし"}」を読み込みました。${boardLoadNote ? " " + boardLoadNote : ""}`, boardLoadNote ? "warn" : "ok");
       };
-      if (dirty && (tileEdits.size || treeEdits.size || markers.length)) askConfirm("今の下書きは消えます。読み込みますか？", "読み込む", go); else go();
+      if (dirty) askConfirm("今の下書きは消えます。読み込みますか？", "読み込む", go); else go();
     } catch (err) { setStatus("このファイルは読み込めません（下書き帳のデータではないようです）。", "warn"); }
     e.target.value = "";
   };

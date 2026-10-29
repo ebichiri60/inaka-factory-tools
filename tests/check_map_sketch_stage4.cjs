@@ -45,3 +45,15 @@ openConsideration('legacy');tileEdits.set(0,KIND_INDEX.w);growBoard(3,2,0,0);con
 let before=JSON.stringify({...serialize(),updatedAt:''});let threw=false;try{deserialize({...old,board:{...old.board,w:999999}})}catch(e){threw=true}t('malformed size preserves',threw&&JSON.stringify({...serialize(),updatedAt:''})===before);
 return a;})()`,ctx,{timeout:10000});console.log(JSON.stringify({more}));if(more.some(x=>!x.ok))process.exitCode=1;
 const bad=vm.runInContext(`(()=>{openConsideration('corridor_trial');tileEdits.set(0,KIND_INDEX.r);const before=JSON.stringify({...serialize(),updatedAt:''});const cases=[{board:'bad'},{board:{id:'unknown',w:999999,h:9,ox:0,oy:0}},{walk:{}},{barriers:42},{frames:[null]}];return cases.map((v,i)=>{let threw=false;try{deserialize(v)}catch(e){threw=true}return {case:i,ok:threw&&JSON.stringify({...serialize(),updatedAt:''})===before}})})()`,ctx,{timeout:10000});console.log(JSON.stringify({bad}));if(bad.some(x=>!x.ok))process.exitCode=1;
+const review=vm.runInContext(`(()=>{const checks=[];const ok=(name,v)=>checks.push({name,ok:!!v});
+for(const [field,type] of [['objects','objects'],['markers','markers'],['slopes','slopes']]) {
+ openConsideration('corridor_trial');growBoard(1,1,1,1);
+ if(field==='objects'){undoStack.push({type,prev:objects.map(x=>({...x}))});objects.push({id:'o',type:'box',x:4301,y:1001,w:1,h:1})}
+ if(field==='markers'){undoStack.push({type,prev:markers.map(x=>({...x}))});markers.push({id:'m',x:4301,y:1001,w:1,h:1,label:'x',color:'#eeeeee'})}
+ if(field==='slopes'){undoStack.push({type,prev:slopes.map(x=>({...x}))});slopes.push({id:'s',dir:'r',x:4301,y:1001,len:1,width:1})}
+ undo();undo();const count=field==='objects'?objects.length:field==='markers'?markers.length:slopes.length;ok(field+' does not revive',count===0&&OX===4300&&W===28);
+}
+openConsideration('corridor_trial');growBoard(3,2,1,1);document.getElementById('sketchName').value='after';document.getElementById('note').value='later note';player={x:4302.5,y:1003.25};undo();ok('later metadata kept',document.getElementById('sketchName').value==='after'&&document.getElementById('note').value==='later note'&&player.x===4302.5&&player.y===1003.25);
+openConsideration('corridor_trial');growBoard(2,2,1,1);player={x:4298.5,y:998.5};undo();ok('outside player clamped with notice',player.x===4300&&player.y===1000&&document.getElementById('saveStatus').textContent.includes('範囲外'));
+openConsideration('corridor_trial');growBoard(1,1,0,0);document.getElementById('brush').value='1';beginStroke();tool='walk_no';applyBrush(2,2);endStroke();undo();undo();ok('planning cells do not revive',walkEdits.size===0&&OX===4300);
+return checks;})()`,ctx,{timeout:10000});console.log(JSON.stringify({review}));if(review.some(x=>!x.ok))process.exitCode=1;

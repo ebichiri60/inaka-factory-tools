@@ -755,7 +755,12 @@ function expandBoardRaw(newOx,newOy,newW,newH) {
 }
 function growBoard(left,top,right,bottom) {
   if (![left,top,right,bottom].every(n=>Number.isInteger(n)&&n>=0&&n<=128) || W+left+right>512 || H+top+bottom>512 || left+top+right+bottom===0) throw new TypeError("拡張は各方向0〜128マス、全体512×512までです。");
-  const prev=captureBoardState(); expandBoardRaw(OX-left,OY-top,W+left+right,H+top+bottom);
+  const prev=captureBoardState();
+  // The following collections remain mutable after expansion, so the snapshot must own copies.
+  prev.objects=objects.map(o=>({...o})); prev.markers=markers.map(m=>({...m})); prev.slopes=slopes.map(s=>({...s}));
+  prev.walkEdits=new Map(walkEdits); prev.barrierEdits=new Map(barrierEdits);
+  prev.frameEdits=new Map([...frameEdits].map(([id,r])=>[id,{...r}])); prev.player={...player}; prev.undoStack=undoStack.slice();
+  expandBoardRaw(OX-left,OY-top,W+left+right,H+top+bottom);
   undoStack=[...prev.undoStack,{type:"board_snapshot",state:prev}]; refreshBoardChrome(); fitView(); markDirty(); updateSummary();
 }
 document.getElementById("growBoard").onclick=()=>{try { growBoard(...["growLeft","growTop","growRight","growBottom"].map(id=>Number(document.getElementById(id).value))); setStatus("範囲を広げました。", "ok"); } catch(e) { setStatus(e.message,"warn"); }};
@@ -1535,7 +1540,15 @@ function undo() {
     if (u.sides) restoreSides(u.sides);
     if (u.backs) restoreBacks(u.backs);
     if (u.tufts) restoreTufts(u.tufts);
-  } else if (u.type === "board_snapshot") { restoreBoardState(u.state); }
+  } else if (u.type === "board_snapshot") {
+    // Names, notes and player movement are not expansion edits. Keep later changes.
+    const currentName=document.getElementById("sketchName").value, currentNote=document.getElementById("note").value, currentPlayer={...player};
+    restoreBoardState(u.state);
+    document.getElementById("sketchName").value=currentName; document.getElementById("note").value=currentNote;
+    const x=Math.max(OX,Math.min(OX+W-0.5,currentPlayer.x)), y=Math.max(OY,Math.min(OY+H,currentPlayer.y));
+    player={x,y};
+    if (x!==currentPlayer.x || y!==currentPlayer.y) setStatus("範囲を戻したため、範囲外の主人公を端へ移しました。","warn");
+  }
   else if (u.type === "frames") { frameEdits = u.prev; refreshFrameUi(); }
   else if (u.type === "markers") { markers = u.prev; renderMarkers(); }
   else if (u.type === "objects") { objects = u.prev; selectedObj = null; renderObjects(); }

@@ -1215,9 +1215,10 @@ function endStroke() {
   if (stroke && (stroke.walk.size || stroke.barriers.size || stroke.tiles.size || stroke.trees.size || stroke.walls.size || stroke.sides.size || stroke.backs.size || stroke.tufts.size)) { undoStack.push({ type: "stroke", ...stroke }); markDirty(); }
   stroke = null;
 }
-function setTile(i, v) {
+function setTile(i, v, restoreBase = false) {
   const prev = tileEdits.has(i) ? tileEdits.get(i) : -1;
-  const next = v === baseKinds[i] ? -1 : v;
+  // A display-only base colour is not the same as an explicit terrain selection.
+  const next = v === baseKinds[i] && (restoreBase || !baseLook || !baseLook[i]) ? -1 : v;
   if (prev === next) return;
   if (!stroke.tiles.has(i)) stroke.tiles.set(i, prev);
   if (next < 0) tileEdits.delete(i); else tileEdits.set(i, next);
@@ -1282,7 +1283,7 @@ function applyBrush(cx, cy) {
     else if (tool === "untuft") setTuft(i, false);
     else if (tool === "wall") setWall(i, true);
     else if (tool === "unwall") { setWall(i, false); setSide(x, y, false); setSide(x + 1, y, false); setBack(x, y, false); setBack(x, y + 1, false); }
-    else if (tool === "restore") { setTile(i, baseKinds[i]); setTree(i, baseTrees.has(i)); setTuft(i, baseTufts.has(i)); setWall(i, false); setSide(x, y, false); setSide(x + 1, y, false); setBack(x, y, false); setBack(x, y + 1, false); }
+    else if (tool === "restore") { setTile(i, baseKinds[i], true); setTree(i, baseTrees.has(i)); setTuft(i, baseTufts.has(i)); setWall(i, false); setSide(x, y, false); setSide(x + 1, y, false); setBack(x, y, false); setBack(x, y + 1, false); }
   }
 }
 function lineTiles(a, b, fn) {
